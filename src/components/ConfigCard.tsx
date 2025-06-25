@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { ChevronDown, ChevronUp, Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -39,13 +39,33 @@ const ConfigCard = ({
   onRun,
   isProcessing
 }: ConfigCardProps) => {
-  const [showPrompt, setShowPrompt] = useState(false);
-  const [showApiKey, setShowApiKey] = useState(false);
   const [apiKeyVisible, setApiKeyVisible] = useState(false);
 
   const isReadyToRun = files.length > 0 && apiKey.length > 0 && (mode === 'quotes' || labels.length > 0);
   
   const acceptedTypes = mode === 'labels' ? ['.xlsx', '.csv'] : ['.txt', '.md'];
+
+  const getDefaultPrompt = () => {
+    if (mode === 'labels') {
+      return `You are helping to categorize data in a spreadsheet. For each row of data, assign one of the provided labels that best describes the content. Be consistent and accurate in your labeling.
+
+Instructions:
+- Read each row carefully
+- Choose the most appropriate label from the provided options
+- If unsure, choose the closest match
+- Be consistent in your labeling approach`;
+    } else {
+      return `Extract relevant quotes from the provided text files based on the following criteria. Focus on finding meaningful, substantive quotes that are relevant to the topic.
+
+Instructions:
+- Look for quotes that are insightful or important
+- Include enough context to understand the quote
+- Maintain the original wording exactly
+- Note the source for each quote`;
+    }
+  };
+
+  const currentPrompt = prompt || getDefaultPrompt();
 
   return (
     <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200 space-y-6">
@@ -78,40 +98,19 @@ const ConfigCard = ({
         </div>
       )}
 
-      {mode === 'quotes' && (
-        <div>
-          <h3 className="text-sm font-medium text-gray-900 mb-3">Extraction Prompt</h3>
-          <Textarea
-            placeholder="Describe what kind of quotes you want to extract..."
-            value={prompt}
-            onChange={(e) => onPromptChange(e.target.value)}
-            className="min-h-[100px]"
-          />
-        </div>
-      )}
-
       <div>
-        <button
-          onClick={() => setShowPrompt(!showPrompt)}
-          className="flex items-center justify-between w-full text-left text-sm font-medium text-gray-900 hover:text-gray-700 transition-colors"
-        >
-          Custom Prompt (optional)
-          {showPrompt ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-        </button>
-        
-        {showPrompt && (
-          <div className="mt-3">
-            <Textarea
-              placeholder={mode === 'labels' 
-                ? "Add custom instructions for labeling..." 
-                : "Additional context or instructions..."
-              }
-              value={prompt}
-              onChange={(e) => onPromptChange(e.target.value)}
-              rows={3}
-            />
-          </div>
-        )}
+        <h3 className="text-sm font-medium text-gray-900 mb-3">
+          {mode === 'labels' ? 'Labeling Instructions' : 'Extraction Prompt'}
+        </h3>
+        <Textarea
+          placeholder={mode === 'labels' 
+            ? "Customize the labeling instructions..." 
+            : "Describe what kind of quotes you want to extract..."
+          }
+          value={currentPrompt}
+          onChange={(e) => onPromptChange(e.target.value)}
+          className="min-h-[120px]"
+        />
       </div>
 
       <div>

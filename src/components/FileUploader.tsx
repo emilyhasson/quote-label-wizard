@@ -80,7 +80,10 @@ const FileUploader = ({ multiple = false, acceptedTypes = ['.xlsx', '.csv'], onF
             or click to browse • {acceptedTypes.join(', ')} files
             {multiple && ' • Multiple files supported'}
           </p>
-          <Button variant="outline">
+          <div className="relative inline-block">
+            <Button variant="outline">
+              Browse Files
+            </Button>
             <input
               type="file"
               multiple={multiple}
@@ -88,8 +91,7 @@ const FileUploader = ({ multiple = false, acceptedTypes = ['.xlsx', '.csv'], onF
               onChange={handleFileInput}
               className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
             />
-            Browse Files
-          </Button>
+          </div>
         </div>
       ) : (
         <div className="space-y-3">
@@ -97,7 +99,10 @@ const FileUploader = ({ multiple = false, acceptedTypes = ['.xlsx', '.csv'], onF
             <h3 className="text-sm font-medium text-gray-900">
               Selected Files {multiple && `(${files.length})`}
             </h3>
-            <Button variant="outline" size="sm">
+            <div className="relative">
+              <Button variant="outline" size="sm">
+                Add {multiple ? 'More' : 'Different'}
+              </Button>
               <input
                 type="file"
                 multiple={multiple}
@@ -105,8 +110,7 @@ const FileUploader = ({ multiple = false, acceptedTypes = ['.xlsx', '.csv'], onF
                 onChange={handleFileInput}
                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
               />
-              Add {multiple ? 'More' : 'Different'}
-            </Button>
+            </div>
           </div>
           
           <div className="space-y-2">
