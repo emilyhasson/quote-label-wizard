@@ -5,6 +5,7 @@ import Footer from '@/components/Footer';
 import ConfigCard from '@/components/ConfigCard';
 import ProgressCard from '@/components/ProgressCard';
 import ResultsCard from '@/components/ResultsCard';
+import { supabase } from '@/integrations/supabase/client';
 
 const Index = () => {
   const [mode, setMode] = useState<'labels' | 'quotes'>('labels');
@@ -28,58 +29,105 @@ const Index = () => {
     localStorage.setItem('openai-api-key', newApiKey);
   };
 
-  const handleRrun = async () => {
+  const getDefaultPrompt = () => {
+    if (mode === 'labels') {
+      return `You are helping to categorize data in a spreadsheet. For each row of data, assign one of the provided labels that best describes the content. Be consistent and accurate in your labeling.
+
+Instructions:
+- Read each row carefully
+- Choose the most appropriate label from the provided options
+- If unsure, choose the closest match
+- Be consistent in your labeling approach`;
+    } else {
+      return `Extract relevant quotes from the provided text files based on the following criteria. Focus on finding meaningful, substantive quotes that are relevant to the topic.
+
+Instructions:
+- Look for quotes that are insightful or important
+- Include enough context to understand the quote
+- Maintain the original wording exactly
+- Note the source for each quote`;
+    }
+  };
+
+  const handleRun = async () => {
     setIsProcessing(true);
     setProgress(0);
     setError(null);
     setResults(null);
 
     try {
-      // Simulate processing
-      setProgressMessage(`${mode === 'labels' ? 'Analyzing spreadsheet' : 'Processing text files'}...`);
+      setProgressMessage('Preparing files...');
+      setProgress(10);
+
+      // Convert files to base64
+      const filePromises = files.map(async (file) => {
+        const arrayBuffer = await file.arrayBuffer();
+        const uint8Array = new Uint8Array(arrayBuffer);
+        const base64 = btoa(String.fromCharCode(...uint8Array));
+        return {
+          data: base64,
+          name: file.name
+        };
+      });
+
+      const fileData = await Promise.all(filePromises);
       setProgress(25);
-      
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      setProgressMessage(`${mode === 'labels' ? 'Applying labels' : 'Extracting quotes'}...`);
+
+      const functionName = mode === 'labels' ? 'process-spreadsheet' : 'extract-quotes';
+      setProgressMessage(mode === 'labels' ? 'Processing spreadsheet with AI...' : 'Extracting quotes with AI...');
       setProgress(50);
-      
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      setProgressMessage('Generating results...');
-      setProgress(75);
-      
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
+
+      let requestBody;
+      if (mode === 'labels') {
+        requestBody = {
+          fileData: fileData[0].data,
+          fileName: fileData[0].name,
+          labels,
+          prompt: prompt || getDefaultPrompt(),
+          model
+        };
+      } else {
+        requestBody = {
+          files: fileData,
+          prompt: prompt || getDefaultPrompt(),
+          model
+        };
+      }
+
+      const { data, error: functionError } = await supabase.functions.invoke(functionName, {
+        body: requestBody
+      });
+
+      if (functionError) {
+        throw new Error(functionError.message);
+      }
+
+      if (!data.success) {
+        throw new Error(data.error || 'Processing failed');
+      }
+
       setProgress(100);
       setProgressMessage('Complete!');
-      
-      // Mock results
-      const mockResults = {
+
+      // Create download URL
+      const blob = new Blob([atob(data.downloadData)], { type: 'text/csv' });
+      const downloadUrl = URL.createObjectURL(blob);
+
+      const processedResults = {
         success: true,
-        downloadUrl: '#',
-        filename: mode === 'labels' ? 'labeled_data.xlsx' : 'extracted_quotes.xlsx',
-        summary: mode === 'labels' 
-          ? `Successfully labeled ${files.length} file(s) with ${labels.length} categories.`
-          : `Extracted ${Math.floor(Math.random() * 50) + 10} quotes from ${files.length} file(s).`,
-        previewData: mode === 'labels'
-          ? [
-              { row: 1, original: 'Sample data', label: labels[0] || 'Category A' },
-              { row: 2, original: 'More data', label: labels[1] || 'Category B' },
-              { row: 3, original: 'Additional info', label: labels[0] || 'Category A' },
-            ]
-          : [
-              { source: files[0]?.name || 'file1.txt', quote: 'This is an extracted quote...', context: 'Relevant context' },
-              { source: files[0]?.name || 'file1.txt', quote: 'Another meaningful quote...', context: 'More context' },
-            ]
+        downloadUrl,
+        filename: data.filename,
+        summary: data.summary,
+        previewData: data.previewData
       };
-      
+
       setTimeout(() => {
-        setResults(mockResults);
+        setResults(processedResults);
         setIsProcessing(false);
       }, 500);
-      
+
     } catch (err) {
+      console.error('Processing error:', err);
       setError(err instanceof Error ? err.message : 'An unexpected error occurred');
       setIsProcessing(false);
     }
@@ -119,7 +167,7 @@ const Index = () => {
           onPromptChange={setPrompt}
           onApiKeyChange={handleApiKeyChange}
           onModelChange={setModel}
-          onRun={handleRrun}
+          onRun={handleRun}
           isProcessing={isProcessing}
         />
         
