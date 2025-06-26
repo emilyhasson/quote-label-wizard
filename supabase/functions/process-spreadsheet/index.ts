@@ -23,6 +23,41 @@ interface ClassificationResult {
   confidence?: number;
 }
 
+// Simple CSV parser
+function parseCSV(text: string): string[][] {
+  const lines = text.split('\n').filter(line => line.trim());
+  return lines.map(line => {
+    const result: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      if (char === '"') {
+        inQuotes = !inQuotes;
+      } else if (char === ',' && !inQuotes) {
+        result.push(current.trim());
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+    result.push(current.trim());
+    return result;
+  });
+}
+
+// Simple XLSX parser - extracts first worksheet as CSV-like data
+async function parseXLSX(fileData: string): Promise<string[][]> {
+  try {
+    // For now, we'll return an error message for Excel files
+    // A full XLSX parser would require importing a library like SheetJS
+    throw new Error('Excel file parsing not fully supported. Please convert your Excel file to CSV format and try again.');
+  } catch (error) {
+    throw new Error('Excel file parsing failed. Please convert your Excel file to CSV format and try again.');
+  }
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -37,18 +72,36 @@ serve(async (req) => {
 
     console.log(`Processing file: ${fileName} with ${labels.length} labels using model: ${model}`);
 
-    // Decode base64 file data - Fixed decoding
-    const binaryString = atob(fileData);
-    const bytes = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
+    // Check if it's an Excel file
+    const isExcel = fileName.toLowerCase().endsWith('.xlsx') || fileName.toLowerCase().endsWith('.xls');
+    
+    let rows: string[][];
+    
+    if (isExcel) {
+      // For Excel files, return a helpful error message
+      return new Response(JSON.stringify({ 
+        success: false,
+        error: 'Excel files are not fully supported yet. Please save your Excel file as a CSV file and try again. You can do this by opening the file in Excel and using "Save As" > "CSV (Comma delimited)".'
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    } else {
+      // Handle CSV files
+      const binaryString = atob(fileData);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      const textContent = new TextDecoder('utf-8').decode(bytes);
+      rows = parseCSV(textContent);
     }
     
-    // Parse CSV/Excel data (simplified CSV parsing for now)
-    const textContent = new TextDecoder('utf-8').decode(bytes);
-    const rows = textContent.split('\n').filter(row => row.trim());
-    const dataRows = rows.slice(1); // Skip header
+    if (rows.length < 2) {
+      throw new Error('File must contain at least a header row and one data row');
+    }
     
+    const dataRows = rows.slice(1); // Skip header
     console.log(`Found ${dataRows.length} rows to process`);
 
     // Process rows in batches to avoid rate limits
@@ -59,6 +112,7 @@ serve(async (req) => {
       const batch = dataRows.slice(i, i + batchSize);
       const batchPromises = batch.map(async (row, batchIndex) => {
         const rowIndex = i + batchIndex + 2; // +2 for header and 1-based indexing
+        const rowText = row.join(' '); // Join all columns with space
         
         try {
           const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -76,7 +130,7 @@ serve(async (req) => {
                 },
                 {
                   role: 'user',
-                  content: `Classify this data: ${row}`
+                  content: `Classify this data: ${rowText}`
                 }
               ],
               max_tokens: 50,
@@ -98,14 +152,14 @@ serve(async (req) => {
 
           return {
             row: rowIndex,
-            original: row,
+            original: rowText,
             label: selectedLabel,
           };
         } catch (error) {
           console.error(`Error processing row ${rowIndex}:`, error);
           return {
             row: rowIndex,
-            original: row,
+            original: rowText,
             label: labels[0], // Fallback label
           };
         }
@@ -123,7 +177,7 @@ serve(async (req) => {
     }
 
     // Generate CSV output with labels - Properly escape CSV values
-    const header = rows[0] + ',Label\n';
+    const header = rows[0].join(',') + ',Label\n';
     const outputRows = results.map(result => {
       const escapedOriginal = `"${result.original.replace(/"/g, '""')}"`;
       const escapedLabel = `"${result.label.replace(/"/g, '""')}"`;
@@ -140,7 +194,7 @@ serve(async (req) => {
       success: true,
       processedRows: results.length,
       downloadData: outputBase64,
-      filename: `labeled_${fileName}`,
+      filename: `labeled_${fileName.replace(/\.xlsx?$/i, '.csv')}`,
       summary: `Successfully labeled ${results.length} rows with ${labels.length} categories`,
       previewData: results.slice(0, 10).map(r => ({
         row: r.row,
