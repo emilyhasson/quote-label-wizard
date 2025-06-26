@@ -18,7 +18,7 @@ interface ProcessRequest {
 
 interface ClassificationResult {
   row: number;
-  original: string;
+  originalRow: string[]; // Store the original row as array
   label: string;
   confidence?: number;
 }
@@ -36,26 +36,26 @@ function parseCSV(text: string): string[][] {
       if (char === '"') {
         inQuotes = !inQuotes;
       } else if (char === ',' && !inQuotes) {
-        result.push(current.trim());
+        result.push(current.trim().replace(/^"|"$/g, '')); // Remove surrounding quotes
         current = '';
       } else {
         current += char;
       }
     }
-    result.push(current.trim());
+    result.push(current.trim().replace(/^"|"$/g, '')); // Remove surrounding quotes
     return result;
   });
 }
 
-// Simple XLSX parser - extracts first worksheet as CSV-like data
-async function parseXLSX(fileData: string): Promise<string[][]> {
-  try {
-    // For now, we'll return an error message for Excel files
-    // A full XLSX parser would require importing a library like SheetJS
-    throw new Error('Excel file parsing not fully supported. Please convert your Excel file to CSV format and try again.');
-  } catch (error) {
-    throw new Error('Excel file parsing failed. Please convert your Excel file to CSV format and try again.');
+// Function to properly escape CSV values
+function escapeCsvValue(value: string): string {
+  // If the value contains commas, quotes, or newlines, wrap it in quotes
+  if (value.includes(',') || value.includes('"') || value.includes('\n') || value.includes('\r')) {
+    // Escape any existing quotes by doubling them
+    const escaped = value.replace(/"/g, '""');
+    return `"${escaped}"`;
   }
+  return value;
 }
 
 serve(async (req) => {
@@ -101,6 +101,7 @@ serve(async (req) => {
       throw new Error('File must contain at least a header row and one data row');
     }
     
+    const headerRow = rows[0];
     const dataRows = rows.slice(1); // Skip header
     console.log(`Found ${dataRows.length} rows to process`);
 
@@ -112,7 +113,7 @@ serve(async (req) => {
       const batch = dataRows.slice(i, i + batchSize);
       const batchPromises = batch.map(async (row, batchIndex) => {
         const rowIndex = i + batchIndex + 2; // +2 for header and 1-based indexing
-        const rowText = row.join(' '); // Join all columns with space
+        const rowText = row.join(' '); // Join all columns with space for classification
         
         try {
           const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -152,14 +153,14 @@ serve(async (req) => {
 
           return {
             row: rowIndex,
-            original: rowText,
+            originalRow: row, // Store the original row as array
             label: selectedLabel,
           };
         } catch (error) {
           console.error(`Error processing row ${rowIndex}:`, error);
           return {
             row: rowIndex,
-            original: rowText,
+            originalRow: row, // Store the original row as array
             label: labels[0], // Fallback label
           };
         }
@@ -176,14 +177,13 @@ serve(async (req) => {
       }
     }
 
-    // Generate CSV output with labels - Properly escape CSV values
-    const header = rows[0].join(',') + ',Label\n';
+    // Generate CSV output with proper column structure
+    const outputHeader = [...headerRow, 'Label'].map(escapeCsvValue).join(',');
     const outputRows = results.map(result => {
-      const escapedOriginal = `"${result.original.replace(/"/g, '""')}"`;
-      const escapedLabel = `"${result.label.replace(/"/g, '""')}"`;
-      return `${escapedOriginal},${escapedLabel}`;
+      const rowWithLabel = [...result.originalRow, result.label];
+      return rowWithLabel.map(escapeCsvValue).join(',');
     }).join('\n');
-    const outputCsv = header + outputRows;
+    const outputCsv = outputHeader + '\n' + outputRows;
 
     // Convert to base64 for download
     const outputBase64 = btoa(unescape(encodeURIComponent(outputCsv)));
@@ -198,7 +198,7 @@ serve(async (req) => {
       summary: `Successfully labeled ${results.length} rows with ${labels.length} categories`,
       previewData: results.slice(0, 10).map(r => ({
         row: r.row,
-        original: r.original.substring(0, 50) + (r.original.length > 50 ? '...' : ''),
+        original: r.originalRow.join(' | ').substring(0, 100) + (r.originalRow.join(' | ').length > 100 ? '...' : ''),
         label: r.label
       }))
     }), {
