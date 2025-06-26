@@ -123,10 +123,8 @@ serve(async (req) => {
     const outputRows = results.map(result => `${result.original},${result.label}`).join('\n');
     const outputCsv = header + outputRows;
 
-    // Convert to base64 for download - Use proper Unicode handling
-    const encoder = new TextEncoder();
-    const csvBytes = encoder.encode(outputCsv);
-    const outputBase64 = btoa(String.fromCharCode(...csvBytes));
+    // Convert to base64 for download - Fixed encoding
+    const outputBase64 = btoa(unescape(encodeURIComponent(outputCsv)));
 
     console.log(`Successfully processed ${results.length} rows`);
 

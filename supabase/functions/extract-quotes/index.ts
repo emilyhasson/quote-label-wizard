@@ -112,10 +112,8 @@ serve(async (req) => {
     ).join('\n');
     const outputCsv = csvHeader + csvRows;
 
-    // Convert to base64 for download - Use proper Unicode handling
-    const encoder = new TextEncoder();
-    const csvBytes = encoder.encode(outputCsv);
-    const outputBase64 = btoa(String.fromCharCode(...csvBytes));
+    // Convert to base64 for download - Fixed encoding
+    const outputBase64 = btoa(unescape(encodeURIComponent(outputCsv)));
 
     console.log(`Successfully extracted ${allQuotes.length} quotes`);
 
