@@ -192,7 +192,7 @@ Do not include any explanation or text outside the JSON array.`;
       return value;
     }
 
-    const csvHeader = 'Source,Quote,Context\n';
+    const csvHeader = 'Filename,Quote,Context\n';
     const csvRows = allQuotes.map(q => 
       `${escapeCsvValue(q.source)},${escapeCsvValue(q.quote)},${escapeCsvValue(q.context)}`
     ).join('\n');
