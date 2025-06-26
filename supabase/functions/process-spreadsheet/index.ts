@@ -37,11 +37,15 @@ serve(async (req) => {
 
     console.log(`Processing file: ${fileName} with ${labels.length} labels using model: ${model}`);
 
-    // Decode base64 file data
-    const fileBuffer = Uint8Array.from(atob(fileData), c => c.charCodeAt(0));
+    // Decode base64 file data - Fixed decoding
+    const binaryString = atob(fileData);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
     
     // Parse CSV/Excel data (simplified CSV parsing for now)
-    const textContent = new TextDecoder().decode(fileBuffer);
+    const textContent = new TextDecoder('utf-8').decode(bytes);
     const rows = textContent.split('\n').filter(row => row.trim());
     const dataRows = rows.slice(1); // Skip header
     
@@ -118,12 +122,16 @@ serve(async (req) => {
       }
     }
 
-    // Generate CSV output with labels
+    // Generate CSV output with labels - Properly escape CSV values
     const header = rows[0] + ',Label\n';
-    const outputRows = results.map(result => `${result.original},${result.label}`).join('\n');
+    const outputRows = results.map(result => {
+      const escapedOriginal = `"${result.original.replace(/"/g, '""')}"`;
+      const escapedLabel = `"${result.label.replace(/"/g, '""')}"`;
+      return `${escapedOriginal},${escapedLabel}`;
+    }).join('\n');
     const outputCsv = header + outputRows;
 
-    // Convert to base64 for download - Fixed encoding
+    // Convert to base64 for download
     const outputBase64 = btoa(unescape(encodeURIComponent(outputCsv)));
 
     console.log(`Successfully processed ${results.length} rows`);

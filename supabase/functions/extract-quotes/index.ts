@@ -39,10 +39,13 @@ serve(async (req) => {
 
     for (const file of files) {
       try {
-        // Decode file content
-        const fileContent = new TextDecoder().decode(
-          Uint8Array.from(atob(file.data), c => c.charCodeAt(0))
-        );
+        // Decode file content - Fixed decoding
+        const binaryString = atob(file.data);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        const fileContent = new TextDecoder('utf-8').decode(bytes);
 
         // Split into chunks to avoid token limits
         const chunks = fileContent.split('\n\n').filter(chunk => chunk.trim().length > 50);
@@ -105,14 +108,14 @@ serve(async (req) => {
       }
     }
 
-    // Generate CSV output
+    // Generate CSV output - Properly escape CSV values
     const csvHeader = 'Source,Quote,Context\n';
     const csvRows = allQuotes.map(q => 
-      `"${q.source}","${q.quote.replace(/"/g, '""')}","${q.context.replace(/"/g, '""')}"`
+      `"${q.source.replace(/"/g, '""')}","${q.quote.replace(/"/g, '""')}","${q.context.replace(/"/g, '""')}"`
     ).join('\n');
     const outputCsv = csvHeader + csvRows;
 
-    // Convert to base64 for download - Fixed encoding
+    // Convert to base64 for download
     const outputBase64 = btoa(unescape(encodeURIComponent(outputCsv)));
 
     console.log(`Successfully extracted ${allQuotes.length} quotes`);
