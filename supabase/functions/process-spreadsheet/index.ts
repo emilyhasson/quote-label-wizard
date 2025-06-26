@@ -23,34 +23,71 @@ interface ClassificationResult {
   confidence?: number;
 }
 
-// Simple CSV parser
+// Robust CSV parser that handles complex text data
 function parseCSV(text: string): string[][] {
-  const lines = text.split('\n').filter(line => line.trim());
-  return lines.map(line => {
-    const result: string[] = [];
-    let current = '';
-    let inQuotes = false;
+  const lines = text.split('\n');
+  const result: string[][] = [];
+  let currentRow: string[] = [];
+  let currentField = '';
+  let inQuotes = false;
+  let i = 0;
+  
+  while (i < text.length) {
+    const char = text[i];
+    const nextChar = text[i + 1];
     
-    for (let i = 0; i < line.length; i++) {
-      const char = line[i];
-      if (char === '"') {
-        inQuotes = !inQuotes;
-      } else if (char === ',' && !inQuotes) {
-        result.push(current.trim().replace(/^"|"$/g, '')); // Remove surrounding quotes
-        current = '';
+    if (char === '"') {
+      if (inQuotes && nextChar === '"') {
+        // Handle escaped quotes (two consecutive quotes)
+        currentField += '"';
+        i += 2; // Skip both quotes
+        continue;
       } else {
-        current += char;
+        // Toggle quote state
+        inQuotes = !inQuotes;
       }
+    } else if (char === ',' && !inQuotes) {
+      // End of field
+      currentRow.push(currentField.trim());
+      currentField = '';
+    } else if ((char === '\n' || char === '\r') && !inQuotes) {
+      // End of row (only if not inside quotes)
+      if (currentField || currentRow.length > 0) {
+        currentRow.push(currentField.trim());
+        if (currentRow.some(field => field.length > 0)) {
+          result.push(currentRow);
+        }
+        currentRow = [];
+        currentField = '';
+      }
+      // Skip \r\n combinations
+      if (char === '\r' && nextChar === '\n') {
+        i++;
+      }
+    } else {
+      // Regular character or newline inside quotes
+      currentField += char;
     }
-    result.push(current.trim().replace(/^"|"$/g, '')); // Remove surrounding quotes
-    return result;
-  });
+    
+    i++;
+  }
+  
+  // Handle last field and row
+  if (currentField || currentRow.length > 0) {
+    currentRow.push(currentField.trim());
+    if (currentRow.some(field => field.length > 0)) {
+      result.push(currentRow);
+    }
+  }
+  
+  // Filter out completely empty rows
+  return result.filter(row => row.some(field => field.length > 0));
 }
 
 // Function to properly escape CSV values
 function escapeCsvValue(value: string): string {
-  // If the value contains commas, quotes, or newlines, wrap it in quotes
-  if (value.includes(',') || value.includes('"') || value.includes('\n') || value.includes('\r')) {
+  // Always wrap in quotes if the value contains special characters or is complex
+  if (value.includes(',') || value.includes('"') || value.includes('\n') || value.includes('\r') || value.trim() !== value) {
     // Escape any existing quotes by doubling them
     const escaped = value.replace(/"/g, '""');
     return `"${escaped}"`;
@@ -87,7 +124,7 @@ serve(async (req) => {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     } else {
-      // Handle CSV files
+      // Handle CSV files with improved parsing
       const binaryString = atob(fileData);
       const bytes = new Uint8Array(binaryString.length);
       for (let i = 0; i < binaryString.length; i++) {
@@ -104,6 +141,8 @@ serve(async (req) => {
     const headerRow = rows[0];
     const dataRows = rows.slice(1); // Skip header
     console.log(`Found ${dataRows.length} rows to process`);
+    console.log(`Header: ${headerRow.join(' | ')}`);
+    console.log(`First data row sample: ${dataRows[0]?.slice(0, 3).join(' | ')}...`);
 
     // Process rows in batches to avoid rate limits
     const batchSize = 5;
