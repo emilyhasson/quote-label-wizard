@@ -15,7 +15,7 @@ const Index = () => {
   const [apiKey, setApiKey] = useState(() => {
     return localStorage.getItem('openai-api-key') || '';
   });
-  const [model, setModel] = useState('gpt-3.5-turbo-16k');
+  const [model, setModel] = useState('gpt-4o-mini');
   
   // Processing states
   const [isProcessing, setIsProcessing] = useState(false);
@@ -84,13 +84,15 @@ Instructions:
           fileName: fileData[0].name,
           labels,
           prompt: prompt || getDefaultPrompt(),
-          model
+          model,
+          apiKey // Pass the user's API key
         };
       } else {
         requestBody = {
           files: fileData,
           prompt: prompt || getDefaultPrompt(),
-          model
+          model,
+          apiKey // Pass the user's API key
         };
       }
 

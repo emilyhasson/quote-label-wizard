@@ -1,7 +1,6 @@
 
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -14,6 +13,7 @@ interface ProcessRequest {
   labels: string[];
   prompt: string;
   model: string;
+  apiKey: string; // User provided API key
 }
 
 interface ClassificationResult {
@@ -29,14 +29,13 @@ serve(async (req) => {
   }
 
   try {
-    const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
-    if (!openAIApiKey) {
-      throw new Error('OpenAI API key not configured');
+    const { fileData, fileName, labels, prompt, model, apiKey }: ProcessRequest = await req.json();
+
+    if (!apiKey) {
+      throw new Error('OpenAI API key is required');
     }
 
-    const { fileData, fileName, labels, prompt, model }: ProcessRequest = await req.json();
-
-    console.log(`Processing file: ${fileName} with ${labels.length} labels`);
+    console.log(`Processing file: ${fileName} with ${labels.length} labels using model: ${model}`);
 
     // Decode base64 file data
     const fileBuffer = Uint8Array.from(atob(fileData), c => c.charCodeAt(0));
@@ -61,7 +60,7 @@ serve(async (req) => {
           const response = await fetch('https://api.openai.com/v1/chat/completions', {
             method: 'POST',
             headers: {
-              'Authorization': `Bearer ${openAIApiKey}`,
+              'Authorization': `Bearer ${apiKey}`,
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
@@ -82,7 +81,7 @@ serve(async (req) => {
           });
 
           if (!response.ok) {
-            throw new Error(`OpenAI API error: ${response.status}`);
+            throw new Error(`OpenAI API error: ${response.status} - ${await response.text()}`);
           }
 
           const data = await response.json();

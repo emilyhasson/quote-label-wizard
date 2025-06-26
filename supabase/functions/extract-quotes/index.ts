@@ -14,6 +14,7 @@ interface ExtractRequest {
   }>;
   prompt: string;
   model: string;
+  apiKey: string; // User provided API key
 }
 
 serve(async (req) => {
@@ -22,14 +23,13 @@ serve(async (req) => {
   }
 
   try {
-    const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
-    if (!openAIApiKey) {
-      throw new Error('OpenAI API key not configured');
+    const { files, prompt, model, apiKey }: ExtractRequest = await req.json();
+
+    if (!apiKey) {
+      throw new Error('OpenAI API key is required');
     }
 
-    const { files, prompt, model }: ExtractRequest = await req.json();
-
-    console.log(`Extracting quotes from ${files.length} files`);
+    console.log(`Extracting quotes from ${files.length} files using model: ${model}`);
 
     const allQuotes: Array<{
       source: string;
@@ -53,7 +53,7 @@ serve(async (req) => {
           const response = await fetch('https://api.openai.com/v1/chat/completions', {
             method: 'POST',
             headers: {
-              'Authorization': `Bearer ${openAIApiKey}`,
+              'Authorization': `Bearer ${apiKey}`,
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
@@ -93,6 +93,8 @@ serve(async (req) => {
             } catch (parseError) {
               console.log('Failed to parse quotes JSON, skipping chunk');
             }
+          } else {
+            console.error(`OpenAI API error: ${response.status} - ${await response.text()}`);
           }
 
           // Small delay to avoid rate limiting
