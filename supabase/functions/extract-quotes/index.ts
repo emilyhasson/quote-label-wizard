@@ -39,86 +39,169 @@ serve(async (req) => {
 
     for (const file of files) {
       try {
-        // Decode file content - Fixed decoding
+        console.log(`Processing file: ${file.name}`);
+        
+        // Decode file content
         const binaryString = atob(file.data);
         const bytes = new Uint8Array(binaryString.length);
         for (let i = 0; i < binaryString.length; i++) {
           bytes[i] = binaryString.charCodeAt(i);
         }
         const fileContent = new TextDecoder('utf-8').decode(bytes);
-
-        // Split into chunks to avoid token limits
-        const chunks = fileContent.split('\n\n').filter(chunk => chunk.trim().length > 50);
         
-        for (const chunk of chunks) {
-          if (chunk.trim().length < 100) continue; // Skip very short chunks
-          
-          const response = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${apiKey}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: model,
-              messages: [
-                {
-                  role: 'system',
-                  content: `${prompt}\n\nRespond with a JSON array of objects, each containing "quote" and "context" fields. Only include meaningful quotes that match the criteria. If no relevant quotes are found, return an empty array.`
-                },
-                {
-                  role: 'user',
-                  content: `Extract relevant quotes from this text:\n\n${chunk}`
-                }
-              ],
-              max_tokens: 1000,
-              temperature: 0.1,
-            }),
-          });
+        console.log(`File ${file.name} content length: ${fileContent.length} characters`);
 
-          if (response.ok) {
+        // Split into manageable chunks (aim for ~2000 characters per chunk)
+        const maxChunkSize = 2000;
+        const paragraphs = fileContent.split('\n\n').filter(p => p.trim().length > 0);
+        const chunks: string[] = [];
+        
+        let currentChunk = '';
+        for (const paragraph of paragraphs) {
+          if (currentChunk.length + paragraph.length > maxChunkSize && currentChunk.length > 0) {
+            chunks.push(currentChunk.trim());
+            currentChunk = paragraph;
+          } else {
+            currentChunk += (currentChunk ? '\n\n' : '') + paragraph;
+          }
+        }
+        if (currentChunk.trim()) {
+          chunks.push(currentChunk.trim());
+        }
+        
+        console.log(`File ${file.name} split into ${chunks.length} chunks`);
+        
+        for (let i = 0; i < chunks.length; i++) {
+          const chunk = chunks[i];
+          if (chunk.length < 100) {
+            console.log(`Skipping short chunk ${i + 1} (${chunk.length} chars)`);
+            continue;
+          }
+          
+          console.log(`Processing chunk ${i + 1}/${chunks.length} for ${file.name} (${chunk.length} chars)`);
+          
+          const systemPrompt = `${prompt}
+
+IMPORTANT: You must respond with valid JSON only. Return an array of objects, each with exactly these fields:
+- "quote": the actual quote text (string)
+- "context": brief context explaining the quote (string)
+
+Example format:
+[
+  {
+    "quote": "This is an example quote from the text.",
+    "context": "This quote discusses the importance of example quotes."
+  }
+]
+
+If no relevant quotes are found, return an empty array: []
+
+Do not include any explanation or text outside the JSON array.`;
+
+          try {
+            const response = await fetch('https://api.openai.com/v1/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${apiKey}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                model: model,
+                messages: [
+                  {
+                    role: 'system',
+                    content: systemPrompt
+                  },
+                  {
+                    role: 'user',
+                    content: `Extract relevant quotes from this text:\n\n${chunk}`
+                  }
+                ],
+                max_tokens: 1500,
+                temperature: 0.1,
+              }),
+            });
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              console.error(`OpenAI API error for chunk ${i + 1}: ${response.status} - ${errorText}`);
+              continue;
+            }
+
             const data = await response.json();
             const content = data.choices[0].message.content.trim();
             
+            console.log(`Raw OpenAI response for chunk ${i + 1}: ${content.substring(0, 200)}...`);
+            
             try {
-              const quotes = JSON.parse(content);
+              // Try to extract JSON from the response
+              let jsonContent = content;
+              
+              // Sometimes OpenAI wraps JSON in markdown code blocks
+              const jsonMatch = content.match(/```(?:json)?\s*(\[[\s\S]*?\])\s*```/);
+              if (jsonMatch) {
+                jsonContent = jsonMatch[1];
+                console.log(`Extracted JSON from code block for chunk ${i + 1}`);
+              }
+              
+              const quotes = JSON.parse(jsonContent);
+              
               if (Array.isArray(quotes)) {
-                quotes.forEach(q => {
-                  if (q.quote && q.quote.length > 10) {
-                    allQuotes.push({
-                      source: file.name,
-                      quote: q.quote,
-                      context: q.context || ''
-                    });
-                  }
+                const validQuotes = quotes.filter(q => 
+                  q && 
+                  typeof q === 'object' && 
+                  typeof q.quote === 'string' && 
+                  q.quote.trim().length > 10
+                );
+                
+                console.log(`Found ${validQuotes.length} valid quotes in chunk ${i + 1}`);
+                
+                validQuotes.forEach(q => {
+                  allQuotes.push({
+                    source: file.name,
+                    quote: q.quote.trim(),
+                    context: (q.context || '').trim()
+                  });
                 });
+              } else {
+                console.log(`Response for chunk ${i + 1} is not an array:`, typeof quotes);
               }
             } catch (parseError) {
-              console.log('Failed to parse quotes JSON, skipping chunk');
+              console.error(`Failed to parse JSON for chunk ${i + 1}:`, parseError);
+              console.log(`Problematic content: ${content}`);
             }
-          } else {
-            console.error(`OpenAI API error: ${response.status} - ${await response.text()}`);
+          } catch (fetchError) {
+            console.error(`Request failed for chunk ${i + 1}:`, fetchError);
           }
 
           // Small delay to avoid rate limiting
-          await new Promise(resolve => setTimeout(resolve, 200));
+          await new Promise(resolve => setTimeout(resolve, 300));
         }
+        
+        console.log(`Completed processing ${file.name}, total quotes so far: ${allQuotes.length}`);
       } catch (error) {
         console.error(`Error processing file ${file.name}:`, error);
       }
     }
 
-    // Generate CSV output - Properly escape CSV values
+    // Generate CSV output with proper escaping
+    function escapeCsvValue(value: string): string {
+      if (value.includes(',') || value.includes('"') || value.includes('\n') || value.includes('\r')) {
+        return `"${value.replace(/"/g, '""')}"`;
+      }
+      return value;
+    }
+
     const csvHeader = 'Source,Quote,Context\n';
     const csvRows = allQuotes.map(q => 
-      `"${q.source.replace(/"/g, '""')}","${q.quote.replace(/"/g, '""')}","${q.context.replace(/"/g, '""')}"`
+      `${escapeCsvValue(q.source)},${escapeCsvValue(q.quote)},${escapeCsvValue(q.context)}`
     ).join('\n');
     const outputCsv = csvHeader + csvRows;
 
     // Convert to base64 for download
     const outputBase64 = btoa(unescape(encodeURIComponent(outputCsv)));
 
-    console.log(`Successfully extracted ${allQuotes.length} quotes`);
+    console.log(`Successfully extracted ${allQuotes.length} quotes from ${files.length} files`);
 
     return new Response(JSON.stringify({
       success: true,
