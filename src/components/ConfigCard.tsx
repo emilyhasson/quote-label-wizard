@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+
+import React, { useState, useEffect } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -46,13 +47,25 @@ const ConfigCard = ({
 
   const getDefaultPrompt = () => {
     if (mode === 'labels') {
-      return `You are helping to categorize data in a spreadsheet. For each row of data, assign one of the provided labels that best describes the content. Be consistent and accurate in your labeling.
+      const labelsString = labels.length > 0 ? `[${labels.join(', ')}]` : '[]';
+      return `**Role:**  
+You are a meticulous data-labeling assistant.
 
-Instructions:
-- Read each row carefully
-- Choose the most appropriate label from the provided options
-- If unsure, choose the closest match
-- Be consistent in your labeling approach`;
+**Labels:** ${labelsString}
+
+**Goal:**  
+For **each row** in the uploaded spreadsheet, assign **exactly one** label from the provided list that best captures the row's meaning.
+
+**Labeling rules**  
+1. **Read the entire row.** Consider every cell, not just the first few.  
+2. **Pick only from the given labels.** Do **not** invent new ones.  
+3. **Tie-breakers:**  
+   • If more than one label seems to fit, choose the most specific.  
+   • If no label is perfect, choose the closest reasonable match.  
+4. **Be consistent.** Apply the same criteria across rows.  
+5. **Output format:** Return a single word or phrase—the chosen label—per row.
+
+Begin labeling now.`;
     } else {
       return `Extract relevant quotes from the provided text files based on the following criteria. Focus on finding meaningful, substantive quotes that are relevant to the topic.
 
@@ -63,6 +76,13 @@ Instructions:
 - Note the source for each quote`;
     }
   };
+
+  // Update prompt when labels change (only for labels mode)
+  useEffect(() => {
+    if (mode === 'labels' && !prompt) {
+      onPromptChange(getDefaultPrompt());
+    }
+  }, [labels, mode]);
 
   const currentPrompt = prompt || getDefaultPrompt();
 
