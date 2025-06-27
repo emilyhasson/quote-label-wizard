@@ -15,11 +15,13 @@ interface ConfigCardProps {
   prompt: string;
   apiKey: string;
   model: string;
+  contextWindow: number;
   onFilesChange: (files: File[]) => void;
   onLabelsChange: (labels: string[]) => void;
   onPromptChange: (prompt: string) => void;
   onApiKeyChange: (apiKey: string) => void;
   onModelChange: (model: string) => void;
+  onContextWindowChange: (contextWindow: number) => void;
   onRun: () => void;
   isProcessing: boolean;
 }
@@ -31,11 +33,13 @@ const ConfigCard = ({
   prompt,
   apiKey,
   model,
+  contextWindow,
   onFilesChange,
   onLabelsChange,
   onPromptChange,
   onApiKeyChange,
   onModelChange,
+  onContextWindowChange,
   onRun,
   isProcessing
 }: ConfigCardProps) => {
@@ -67,13 +71,19 @@ For **each row** in the uploaded spreadsheet, assign **exactly one** label from 
 
 Begin labeling now.`;
     } else {
-      return `Extract relevant quotes from the provided text files based on the following criteria. Focus on finding meaningful, substantive quotes that are relevant to the topic.
+      return `**Role**  
+You are a precise research assistant whose task is to extract verbatim quotations from text files.
 
-Instructions:
-- Look for quotes that are insightful or important
-- Include enough context to understand the quote
-- Maintain the original wording exactly
-- Note the source for each quote`;
+**Extraction criteria:** "<ADD YOUR CRITERIA HERE>"
+
+**Context window:** ±${contextWindow} characters around each quote   ← default 75; user may override
+
+**Rules**  
+1. **Scan every file completely.**  
+2. **Select a passage only if it clearly satisfies the extraction criteria.** Ignore marginal or repetitive text.  
+3. **Quote verbatim.** Do **not** correct grammar, spelling, or punctuation.  
+4. **Preserve minimal context.** Include just enough leading and trailing text (as defined by the window above) so the quote is understandable on its own. 
+5. **No commentary or extra lines.** Output exactly the schema below—nothing more, nothing less.`;
     }
   };
 
@@ -83,6 +93,14 @@ Instructions:
       onPromptChange(getDefaultPrompt());
     }
   }, [labels, mode]);
+
+  // Update prompt when context window changes (only for quotes mode)
+  useEffect(() => {
+    if (mode === 'quotes') {
+      const updatedPrompt = getDefaultPrompt();
+      onPromptChange(updatedPrompt);
+    }
+  }, [contextWindow, mode]);
 
   const currentPrompt = prompt || getDefaultPrompt();
 
@@ -114,6 +132,24 @@ Instructions:
         <div>
           <h3 className="text-sm font-medium text-gray-900 mb-3">Labels</h3>
           <LabelInput labels={labels} onLabelsChange={onLabelsChange} />
+        </div>
+      )}
+
+      {mode === 'quotes' && (
+        <div>
+          <h3 className="text-sm font-medium text-gray-900 mb-3">Context Window</h3>
+          <div className="flex items-center space-x-3">
+            <span className="text-sm text-gray-600">±</span>
+            <Input
+              type="number"
+              min="10"
+              max="500"
+              value={contextWindow}
+              onChange={(e) => onContextWindowChange(Number(e.target.value))}
+              className="w-20"
+            />
+            <span className="text-sm text-gray-600">characters around each quote</span>
+          </div>
         </div>
       )}
 

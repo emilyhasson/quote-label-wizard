@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
@@ -15,6 +16,7 @@ const Index = () => {
     return localStorage.getItem('openai-api-key') || '';
   });
   const [model, setModel] = useState('gpt-4o-mini');
+  const [contextWindow, setContextWindow] = useState(75);
   
   // Processing states
   const [isProcessing, setIsProcessing] = useState(false);
@@ -50,13 +52,19 @@ For **each row** in the uploaded spreadsheet, assign **exactly one** label from 
 
 Begin labeling now.`;
     } else {
-      return `Extract relevant quotes from the provided text files based on the following criteria. Focus on finding meaningful, substantive quotes that are relevant to the topic.
+      return `**Role**  
+You are a precise research assistant whose task is to extract verbatim quotations from text files.
 
-Instructions:
-- Look for quotes that are insightful or important
-- Include enough context to understand the quote
-- Maintain the original wording exactly
-- Note the source for each quote`;
+**Extraction criteria:** "<ADD YOUR CRITERIA HERE>"
+
+**Context window:** ±${contextWindow} characters around each quote   ← default 75; user may override
+
+**Rules**  
+1. **Scan every file completely.**  
+2. **Select a passage only if it clearly satisfies the extraction criteria.** Ignore marginal or repetitive text.  
+3. **Quote verbatim.** Do **not** correct grammar, spelling, or punctuation.  
+4. **Preserve minimal context.** Include just enough leading and trailing text (as defined by the window above) so the quote is understandable on its own. 
+5. **No commentary or extra lines.** Output exactly the schema below—nothing more, nothing less.`;
     }
   };
 
@@ -117,7 +125,8 @@ Instructions:
           files: fileData,
           prompt: prompt || getDefaultPrompt(),
           model,
-          apiKey // Pass the user's API key
+          apiKey, // Pass the user's API key
+          contextWindow
         };
       }
 
@@ -189,11 +198,13 @@ Instructions:
           prompt={prompt}
           apiKey={apiKey}
           model={model}
+          contextWindow={contextWindow}
           onFilesChange={setFiles}
           onLabelsChange={handleLabelsChange}
           onPromptChange={setPrompt}
           onApiKeyChange={handleApiKeyChange}
           onModelChange={setModel}
+          onContextWindowChange={setContextWindow}
           onRun={handleRun}
           isProcessing={isProcessing}
         />

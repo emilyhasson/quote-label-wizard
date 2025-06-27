@@ -15,6 +15,7 @@ interface ExtractRequest {
   prompt: string;
   model: string;
   apiKey: string; // User provided API key
+  contextWindow?: number;
 }
 
 serve(async (req) => {
@@ -23,7 +24,7 @@ serve(async (req) => {
   }
 
   try {
-    const { files, prompt, model, apiKey }: ExtractRequest = await req.json();
+    const { files, prompt, model, apiKey, contextWindow = 75 }: ExtractRequest = await req.json();
 
     if (!apiKey) {
       throw new Error('OpenAI API key is required');
@@ -34,7 +35,8 @@ serve(async (req) => {
     const allQuotes: Array<{
       source: string;
       quote: string;
-      context: string;
+      context_before: string;
+      context_after: string;
     }> = [];
 
     for (const file of files) {
@@ -84,13 +86,15 @@ serve(async (req) => {
 
 IMPORTANT: You must respond with valid JSON only. Return an array of objects, each with exactly these fields:
 - "quote": the actual quote text (string)
-- "context": brief context explaining the quote (string)
+- "context_before": brief context before the quote (string, max ${contextWindow} characters)
+- "context_after": brief context after the quote (string, max ${contextWindow} characters)
 
 Example format:
 [
   {
     "quote": "This is an example quote from the text.",
-    "context": "This quote discusses the importance of example quotes."
+    "context_before": "This is the preceding context text that leads to ",
+    "context_after": " and this follows the quote with additional context."
   }
 ]
 
@@ -160,7 +164,8 @@ Do not include any explanation or text outside the JSON array.`;
                   allQuotes.push({
                     source: file.name,
                     quote: q.quote.trim(),
-                    context: (q.context || '').trim()
+                    context_before: (q.context_before || '').trim(),
+                    context_after: (q.context_after || '').trim()
                   });
                 });
               } else {
@@ -192,9 +197,9 @@ Do not include any explanation or text outside the JSON array.`;
       return value;
     }
 
-    const csvHeader = 'Filename,Quote,Context\n';
+    const csvHeader = 'Filename,Quote,Context Before,Context After\n';
     const csvRows = allQuotes.map(q => 
-      `${escapeCsvValue(q.source)},${escapeCsvValue(q.quote)},${escapeCsvValue(q.context)}`
+      `${escapeCsvValue(q.source)},${escapeCsvValue(q.quote)},${escapeCsvValue(q.context_before)},${escapeCsvValue(q.context_after)}`
     ).join('\n');
     const outputCsv = csvHeader + csvRows;
 
@@ -209,7 +214,12 @@ Do not include any explanation or text outside the JSON array.`;
       downloadData: outputBase64,
       filename: 'extracted_quotes.csv',
       summary: `Extracted ${allQuotes.length} quotes from ${files.length} file(s)`,
-      previewData: allQuotes.slice(0, 10)
+      previewData: allQuotes.slice(0, 10).map(q => ({
+        Filename: q.source,
+        Quote: q.quote,
+        'Context Before': q.context_before,
+        'Context After': q.context_after
+      }))
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
