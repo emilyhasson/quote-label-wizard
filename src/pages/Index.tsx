@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
@@ -17,6 +16,7 @@ const Index = () => {
   });
   const [model, setModel] = useState('gpt-4o-mini');
   const [contextWindow, setContextWindow] = useState(75);
+  const [metadata, setMetadata] = useState<string[]>(['Filename', 'Quote', 'Context Before', 'Context After']);
   
   // Processing states
   const [isProcessing, setIsProcessing] = useState(false);
@@ -52,20 +52,54 @@ For **each row** in the uploaded spreadsheet, assign **exactly one** label from 
 
 Begin labeling now.`;
     } else {
+      const outputSchema = generateOutputSchema();
       return `**Role**  
 You are a precise research assistant whose task is to extract verbatim quotations from text files.
 
 **Extraction criteria:** "<ADD YOUR CRITERIA HERE>"
 
-**Context window:** ±${contextWindow} characters around each quote   ← default 75; user may override
+**Context window:** ±${contextWindow} characters around each quote
 
 **Rules**  
 1. **Scan every file completely.**  
 2. **Select a passage only if it clearly satisfies the extraction criteria.** Ignore marginal or repetitive text.  
 3. **Quote verbatim.** Do **not** correct grammar, spelling, or punctuation.  
 4. **Preserve minimal context.** Include just enough leading and trailing text (as defined by the window above) so the quote is understandable on its own. 
-5. **No commentary or extra lines.** Output exactly the schema below—nothing more, nothing less.`;
+5. **No commentary or extra lines.** Output exactly the schema below—nothing more, nothing less.
+
+**Output format (one JSON object per quote, newline-delimited)**  
+\`\`\`json
+${outputSchema}
+\`\`\``;
     }
+  };
+
+  const generateOutputSchema = () => {
+    const schemaObject: Record<string, string> = {};
+    
+    metadata.forEach(field => {
+      switch (field.toLowerCase()) {
+        case 'filename':
+        case 'file_name':
+          schemaObject.file_name = 'example.txt';
+          break;
+        case 'quote':
+          schemaObject.quote = 'verbatim text that matches …';
+          break;
+        case 'context before':
+        case 'context_before':
+          schemaObject.context_before = '… Part of preceding text ';
+          break;
+        case 'context after':
+        case 'context_after':
+          schemaObject.context_after = ' following text …';
+          break;
+        default:
+          schemaObject[field.toLowerCase().replace(/\s+/g, '_')] = `example ${field.toLowerCase()}`;
+      }
+    });
+
+    return JSON.stringify(schemaObject, null, 2);
   };
 
   // Update prompt when labels change or mode changes
@@ -80,7 +114,7 @@ You are a precise research assistant whose task is to extract verbatim quotation
   // Reset prompt when mode changes
   useEffect(() => {
     setPrompt(getDefaultPrompt());
-  }, [mode]);
+  }, [mode, contextWindow, metadata]);
 
   const handleRun = async () => {
     setIsProcessing(true);
@@ -199,12 +233,14 @@ You are a precise research assistant whose task is to extract verbatim quotation
           apiKey={apiKey}
           model={model}
           contextWindow={contextWindow}
+          metadata={metadata}
           onFilesChange={setFiles}
           onLabelsChange={handleLabelsChange}
           onPromptChange={setPrompt}
           onApiKeyChange={handleApiKeyChange}
           onModelChange={setModel}
           onContextWindowChange={setContextWindow}
+          onMetadataChange={setMetadata}
           onRun={handleRun}
           isProcessing={isProcessing}
         />

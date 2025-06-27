@@ -1,6 +1,5 @@
-
 import React, { useState, useEffect } from 'react';
-import { Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff, Plus, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -16,12 +15,14 @@ interface ConfigCardProps {
   apiKey: string;
   model: string;
   contextWindow: number;
+  metadata: string[];
   onFilesChange: (files: File[]) => void;
   onLabelsChange: (labels: string[]) => void;
   onPromptChange: (prompt: string) => void;
   onApiKeyChange: (apiKey: string) => void;
   onModelChange: (model: string) => void;
   onContextWindowChange: (contextWindow: number) => void;
+  onMetadataChange: (metadata: string[]) => void;
   onRun: () => void;
   isProcessing: boolean;
 }
@@ -34,16 +35,19 @@ const ConfigCard = ({
   apiKey,
   model,
   contextWindow,
+  metadata,
   onFilesChange,
   onLabelsChange,
   onPromptChange,
   onApiKeyChange,
   onModelChange,
   onContextWindowChange,
+  onMetadataChange,
   onRun,
   isProcessing
 }: ConfigCardProps) => {
   const [apiKeyVisible, setApiKeyVisible] = useState(false);
+  const [newMetadataField, setNewMetadataField] = useState('');
 
   const isReadyToRun = files.length > 0 && apiKey.length > 0 && (mode === 'quotes' || labels.length > 0);
   
@@ -71,20 +75,54 @@ For **each row** in the uploaded spreadsheet, assign **exactly one** label from 
 
 Begin labeling now.`;
     } else {
+      const outputSchema = generateOutputSchema();
       return `**Role**  
 You are a precise research assistant whose task is to extract verbatim quotations from text files.
 
 **Extraction criteria:** "<ADD YOUR CRITERIA HERE>"
 
-**Context window:** ±${contextWindow} characters around each quote   ← default 75; user may override
+**Context window:** ±${contextWindow} characters around each quote
 
 **Rules**  
 1. **Scan every file completely.**  
 2. **Select a passage only if it clearly satisfies the extraction criteria.** Ignore marginal or repetitive text.  
 3. **Quote verbatim.** Do **not** correct grammar, spelling, or punctuation.  
 4. **Preserve minimal context.** Include just enough leading and trailing text (as defined by the window above) so the quote is understandable on its own. 
-5. **No commentary or extra lines.** Output exactly the schema below—nothing more, nothing less.`;
+5. **No commentary or extra lines.** Output exactly the schema below—nothing more, nothing less.
+
+**Output format (one JSON object per quote, newline-delimited)**  
+\`\`\`json
+${outputSchema}
+\`\`\``;
     }
+  };
+
+  const generateOutputSchema = () => {
+    const schemaObject: Record<string, string> = {};
+    
+    metadata.forEach(field => {
+      switch (field.toLowerCase()) {
+        case 'filename':
+        case 'file_name':
+          schemaObject.file_name = 'example.txt';
+          break;
+        case 'quote':
+          schemaObject.quote = 'verbatim text that matches …';
+          break;
+        case 'context before':
+        case 'context_before':
+          schemaObject.context_before = '… Part of preceding text ';
+          break;
+        case 'context after':
+        case 'context_after':
+          schemaObject.context_after = ' following text …';
+          break;
+        default:
+          schemaObject[field.toLowerCase().replace(/\s+/g, '_')] = `example ${field.toLowerCase()}`;
+      }
+    });
+
+    return JSON.stringify(schemaObject, null, 2);
   };
 
   // Update prompt when labels change (only for labels mode)
@@ -94,13 +132,25 @@ You are a precise research assistant whose task is to extract verbatim quotation
     }
   }, [labels, mode]);
 
-  // Update prompt when context window changes (only for quotes mode)
+  // Update prompt when context window or metadata changes (only for quotes mode)
   useEffect(() => {
     if (mode === 'quotes') {
       const updatedPrompt = getDefaultPrompt();
       onPromptChange(updatedPrompt);
     }
-  }, [contextWindow, mode]);
+  }, [contextWindow, metadata, mode]);
+
+  const handleAddMetadata = () => {
+    if (newMetadataField.trim() && !metadata.includes(newMetadataField.trim())) {
+      onMetadataChange([...metadata, newMetadataField.trim()]);
+      setNewMetadataField('');
+    }
+  };
+
+  const handleRemoveMetadata = (index: number) => {
+    const newMetadata = metadata.filter((_, i) => i !== index);
+    onMetadataChange(newMetadata);
+  };
 
   const currentPrompt = prompt || getDefaultPrompt();
 
@@ -136,21 +186,68 @@ You are a precise research assistant whose task is to extract verbatim quotation
       )}
 
       {mode === 'quotes' && (
-        <div>
-          <h3 className="text-sm font-medium text-gray-900 mb-3">Context Window</h3>
-          <div className="flex items-center space-x-3">
-            <span className="text-sm text-gray-600">±</span>
-            <Input
-              type="number"
-              min="10"
-              max="500"
-              value={contextWindow}
-              onChange={(e) => onContextWindowChange(Number(e.target.value))}
-              className="w-20"
-            />
-            <span className="text-sm text-gray-600">characters around each quote</span>
+        <>
+          <div>
+            <h3 className="text-sm font-medium text-gray-900 mb-3">Context Window</h3>
+            <div className="flex items-center space-x-3">
+              <span className="text-sm text-gray-600">±</span>
+              <Input
+                type="number"
+                min="10"
+                max="500"
+                value={contextWindow}
+                onChange={(e) => onContextWindowChange(Number(e.target.value))}
+                className="w-20"
+              />
+              <span className="text-sm text-gray-600">characters around each quote</span>
+            </div>
           </div>
-        </div>
+
+          <div>
+            <h3 className="text-sm font-medium text-gray-900 mb-3">Output Metadata Fields</h3>
+            <div className="space-y-3">
+              <div className="flex flex-wrap gap-2">
+                {metadata.map((field, index) => (
+                  <div key={index} className="flex items-center bg-gray-100 rounded-md px-3 py-1">
+                    <span className="text-sm text-gray-700">{field}</span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="ml-2 h-4 w-4 p-0 hover:bg-gray-200"
+                      onClick={() => handleRemoveMetadata(index)}
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+              <div className="flex items-center space-x-2">
+                <Input
+                  placeholder="Add metadata field..."
+                  value={newMetadataField}
+                  onChange={(e) => setNewMetadataField(e.target.value)}
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleAddMetadata();
+                    }
+                  }}
+                  className="flex-1"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleAddMetadata}
+                  disabled={!newMetadataField.trim()}
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          </div>
+        </>
       )}
 
       <div>
