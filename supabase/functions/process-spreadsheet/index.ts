@@ -1,6 +1,6 @@
-
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.50.2';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -22,6 +22,11 @@ interface ClassificationResult {
   label: string;
   confidence?: number;
 }
+
+// Initialize Supabase client for progress updates
+const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 // Robust CSV parser that handles complex text data
 function parseCSV(text: string): string[][] {
@@ -147,9 +152,18 @@ serve(async (req) => {
     // Process rows in batches to avoid rate limits
     const batchSize = 5;
     const results: ClassificationResult[] = [];
+    const totalBatches = Math.ceil(dataRows.length / batchSize);
     
     for (let i = 0; i < dataRows.length; i += batchSize) {
       const batch = dataRows.slice(i, i + batchSize);
+      const currentBatch = Math.floor(i / batchSize) + 1;
+      
+      // Calculate progress: 25% for file prep, 70% for processing, 5% for final output
+      const processingProgress = (currentBatch / totalBatches) * 70;
+      const totalProgress = 25 + processingProgress;
+      
+      console.log(`Processing batch ${currentBatch}/${totalBatches} - Progress: ${Math.round(totalProgress)}%`);
+      
       const batchPromises = batch.map(async (row, batchIndex) => {
         const rowIndex = i + batchIndex + 2; // +2 for header and 1-based indexing
         const rowText = row.join(' '); // Join all columns with space for classification
@@ -208,13 +222,13 @@ serve(async (req) => {
       const batchResults = await Promise.all(batchPromises);
       results.push(...batchResults);
       
-      console.log(`Processed batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(dataRows.length/batchSize)}`);
-      
       // Small delay to avoid rate limiting
       if (i + batchSize < dataRows.length) {
         await new Promise(resolve => setTimeout(resolve, 100));
       }
     }
+
+    console.log('Generating final output...');
 
     // Generate CSV output with proper column structure
     const outputHeader = [...headerRow, 'Label'].map(escapeCsvValue).join(',');

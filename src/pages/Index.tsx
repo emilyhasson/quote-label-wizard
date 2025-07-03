@@ -141,12 +141,23 @@ ${outputSchema}
       setProgress(25);
 
       const functionName = mode === 'labels' ? 'process-spreadsheet' : 'extract-quotes';
-      setProgressMessage(mode === 'labels' ? 'Processing spreadsheet with AI...' : 'Extracting quotes with AI...');
-      setProgress(50);
-
-      let requestBody;
+      
       if (mode === 'labels') {
-        requestBody = {
+        // For spreadsheet processing, we'll simulate progress based on estimated time
+        setProgressMessage('Processing spreadsheet with AI...');
+        
+        // Calculate estimated rows for better progress tracking
+        const estimatedRows = 100; // We'll update this based on actual file analysis
+        const progressInterval = setInterval(() => {
+          setProgress(prev => {
+            if (prev < 95) {
+              return prev + 1;
+            }
+            return prev;
+          });
+        }, 2000); // Update every 2 seconds
+
+        let requestBody = {
           fileData: fileData[0].data,
           fileName: fileData[0].name,
           labels,
@@ -154,47 +165,84 @@ ${outputSchema}
           model,
           apiKey // Pass the user's API key
         };
+
+        const { data, error: functionError } = await supabase.functions.invoke(functionName, {
+          body: requestBody
+        });
+
+        clearInterval(progressInterval);
+
+        if (functionError) {
+          throw new Error(functionError.message);
+        }
+
+        if (!data.success) {
+          throw new Error(data.error || 'Processing failed');
+        }
+
+        setProgress(100);
+        setProgressMessage('Complete!');
+
+        // Create download URL
+        const blob = new Blob([atob(data.downloadData)], { type: 'text/csv' });
+        const downloadUrl = URL.createObjectURL(blob);
+
+        const processedResults = {
+          success: true,
+          downloadUrl,
+          filename: data.filename,
+          summary: data.summary,
+          previewData: data.previewData
+        };
+
+        setTimeout(() => {
+          setResults(processedResults);
+          setIsProcessing(false);
+        }, 500);
       } else {
-        requestBody = {
+        // Quote extraction handling remains the same
+        setProgressMessage('Extracting quotes with AI...');
+        setProgress(50);
+
+        let requestBody = {
           files: fileData,
           prompt: prompt || getDefaultPrompt(),
           model,
-          apiKey, // Pass the user's API key
+          apiKey,
           contextWindow
         };
+
+        const { data, error: functionError } = await supabase.functions.invoke(functionName, {
+          body: requestBody
+        });
+
+        if (functionError) {
+          throw new Error(functionError.message);
+        }
+
+        if (!data.success) {
+          throw new Error(data.error || 'Processing failed');
+        }
+
+        setProgress(100);
+        setProgressMessage('Complete!');
+
+        const blob = new Blob([atob(data.downloadData)], { type: 'text/csv' });
+        const downloadUrl = URL.createObjectURL(blob);
+
+        const processedResults = {
+          success: true,
+          downloadUrl,
+          filename: data.filename,
+          summary: data.summary,
+          previewData: data.previewData
+        };
+
+        setTimeout(() => {
+          setResults(processedResults);
+          setIsProcessing(false);
+        }, 500);
       }
-
-      const { data, error: functionError } = await supabase.functions.invoke(functionName, {
-        body: requestBody
-      });
-
-      if (functionError) {
-        throw new Error(functionError.message);
-      }
-
-      if (!data.success) {
-        throw new Error(data.error || 'Processing failed');
-      }
-
-      setProgress(100);
-      setProgressMessage('Complete!');
-
-      // Create download URL
-      const blob = new Blob([atob(data.downloadData)], { type: 'text/csv' });
-      const downloadUrl = URL.createObjectURL(blob);
-
-      const processedResults = {
-        success: true,
-        downloadUrl,
-        filename: data.filename,
-        summary: data.summary,
-        previewData: data.previewData
-      };
-
-      setTimeout(() => {
-        setResults(processedResults);
-        setIsProcessing(false);
-      }, 500);
 
     } catch (err) {
       console.error('Processing error:', err);
