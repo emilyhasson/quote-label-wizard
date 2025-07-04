@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
+
+import React, { useState, useEffect } from 'react';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import ConfigCard from '@/components/ConfigCard';
@@ -30,8 +31,8 @@ const Index = () => {
     localStorage.setItem('openai-api-key', newApiKey);
   };
 
-  // Generate default prompt - moved outside useEffect to prevent recreation
-  const generateDefaultPrompt = useCallback((currentMode: string, currentLabels: string[], currentContextWindow: number, currentMetadata: string[]) => {
+  // Generate default prompt function - no useCallback to avoid circular dependencies
+  const generateDefaultPrompt = (currentMode: string, currentLabels: string[], currentContextWindow: number, currentMetadata: string[]) => {
     if (currentMode === 'labels') {
       const labelsString = currentLabels.length > 0 ? `[${currentLabels.join(', ')}]` : '[]';
       return `**Role:**  
@@ -98,13 +99,13 @@ You are a precise research assistant whose task is to extract verbatim quotation
 ${outputSchema}
 \`\`\``;
     }
-  }, []); // Empty dependency array - function is stable
+  };
 
-  // Single useEffect to handle all prompt updates - prevents circular dependencies
+  // Update prompt when dependencies change - simple useEffect without circular dependencies
   useEffect(() => {
     const defaultPrompt = generateDefaultPrompt(mode, labels, contextWindow, metadata);
     setPrompt(defaultPrompt);
-  }, [mode, labels, contextWindow, metadata, generateDefaultPrompt]);
+  }, [mode, labels, contextWindow, metadata]);
 
   const handleRun = async () => {
     setIsProcessing(true);
