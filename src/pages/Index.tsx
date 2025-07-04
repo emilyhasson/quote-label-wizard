@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+
+import React, { useState, useEffect, useCallback } from 'react';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import ConfigCard from '@/components/ConfigCard';
@@ -30,7 +31,7 @@ const Index = () => {
     localStorage.setItem('openai-api-key', newApiKey);
   };
 
-  const getDefaultPrompt = (currentLabels: string[] = labels) => {
+  const getDefaultPrompt = useCallback((currentLabels: string[] = labels) => {
     if (mode === 'labels') {
       const labelsString = currentLabels.length > 0 ? `[${currentLabels.join(', ')}]` : '[]';
       return `**Role:**  
@@ -72,9 +73,9 @@ You are a precise research assistant whose task is to extract verbatim quotation
 ${outputSchema}
 \`\`\``;
     }
-  };
+  }, [mode, contextWindow, metadata, labels]);
 
-  const generateOutputSchema = () => {
+  const generateOutputSchema = useCallback(() => {
     const schemaObject: Record<string, string> = {};
     
     metadata.forEach(field => {
@@ -100,21 +101,22 @@ ${outputSchema}
     });
 
     return JSON.stringify(schemaObject, null, 2);
-  };
+  }, [metadata]);
 
-  // Update prompt when labels change or mode changes
-  const handleLabelsChange = (newLabels: string[]) => {
+  // Update prompt when labels change or mode changes - but prevent infinite loops
+  const handleLabelsChange = useCallback((newLabels: string[]) => {
     setLabels(newLabels);
     if (mode === 'labels') {
       const updatedPrompt = getDefaultPrompt(newLabels);
       setPrompt(updatedPrompt);
     }
-  };
+  }, [mode, getDefaultPrompt]);
 
-  // Reset prompt when mode changes
+  // Initialize prompt only once when mode changes
   useEffect(() => {
-    setPrompt(getDefaultPrompt());
-  }, [mode, contextWindow, metadata]);
+    const defaultPrompt = getDefaultPrompt();
+    setPrompt(defaultPrompt);
+  }, [mode]); // Only depend on mode to prevent infinite loops
 
   const handleRun = async () => {
     setIsProcessing(true);

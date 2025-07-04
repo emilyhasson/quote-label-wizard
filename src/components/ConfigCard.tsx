@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+
+import React, { useState, useCallback } from 'react';
 import { Eye, EyeOff, Plus, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -53,7 +54,7 @@ const ConfigCard = ({
   
   const acceptedTypes = mode === 'labels' ? ['.xlsx', '.csv'] : ['.txt', '.md'];
 
-  const getDefaultPrompt = () => {
+  const getDefaultPrompt = useCallback(() => {
     if (mode === 'labels') {
       const labelsString = labels.length > 0 ? `[${labels.join(', ')}]` : '[]';
       return `**Role:**  
@@ -95,9 +96,9 @@ You are a precise research assistant whose task is to extract verbatim quotation
 ${outputSchema}
 \`\`\``;
     }
-  };
+  }, [mode, labels, contextWindow, metadata]);
 
-  const generateOutputSchema = () => {
+  const generateOutputSchema = useCallback(() => {
     const schemaObject: Record<string, string> = {};
     
     metadata.forEach(field => {
@@ -123,22 +124,7 @@ ${outputSchema}
     });
 
     return JSON.stringify(schemaObject, null, 2);
-  };
-
-  // Update prompt when labels change (only for labels mode)
-  useEffect(() => {
-    if (mode === 'labels' && !prompt) {
-      onPromptChange(getDefaultPrompt());
-    }
-  }, [labels, mode]);
-
-  // Update prompt when context window or metadata changes (only for quotes mode)
-  useEffect(() => {
-    if (mode === 'quotes') {
-      const updatedPrompt = getDefaultPrompt();
-      onPromptChange(updatedPrompt);
-    }
-  }, [contextWindow, metadata, mode]);
+  }, [metadata]);
 
   const handleAddMetadata = () => {
     if (newMetadataField.trim() && !metadata.includes(newMetadataField.trim())) {
