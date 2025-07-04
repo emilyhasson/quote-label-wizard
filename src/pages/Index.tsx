@@ -1,11 +1,81 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import ConfigCard from '@/components/ConfigCard';
 import ProgressCard from '@/components/ProgressCard';
 import ResultsCard from '@/components/ResultsCard';
 import { supabase } from '@/integrations/supabase/client';
+
+// Move generateDefaultPrompt outside component to prevent recreation
+const generateDefaultPrompt = (currentMode: string, currentLabels: string[], currentContextWindow: number, currentMetadata: string[]) => {
+  if (currentMode === 'labels') {
+    const labelsString = currentLabels.length > 0 ? `[${currentLabels.join(', ')}]` : '[]';
+    return `**Role:**  
+You are a meticulous data-labeling assistant.
+
+**Labels:** ${labelsString}
+
+**Goal:**  
+For **each row** in the uploaded spreadsheet, assign **exactly one** label from the provided list that best captures the row's meaning.
+
+**Labeling rules**  
+1. **Read the entire row.** Consider every cell, not just the first few.  
+2. **Pick only from the given labels.** Do **not** invent new ones.  
+3. **Tie-breakers:**  
+   • If more than one label seems to fit, choose the most specific.  
+   • If no label is perfect, choose the closest reasonable match.  
+4. **Be consistent.** Apply the same criteria across rows.  
+5. **Output format:** Return a single word or phrase—the chosen label—per row.
+
+Begin labeling now.`;
+  } else {
+    const schemaObject: Record<string, string> = {};
+    
+    currentMetadata.forEach(field => {
+      switch (field.toLowerCase()) {
+        case 'filename':
+        case 'file_name':
+          schemaObject.file_name = 'example.txt';
+          break;
+        case 'quote':
+          schemaObject.quote = 'verbatim text that matches …';
+          break;
+        case 'context before':
+        case 'context_before':
+          schemaObject.context_before = '… Part of preceding text ';
+          break;
+        case 'context after':
+        case 'context_after':
+          schemaObject.context_after = ' following text …';
+          break;
+        default:
+          schemaObject[field.toLowerCase().replace(/\s+/g, '_')] = `example ${field.toLowerCase()}`;
+      }
+    });
+
+    const outputSchema = JSON.stringify(schemaObject, null, 2);
+    
+    return `**Role**  
+You are a precise research assistant whose task is to extract verbatim quotations from text files.
+
+**Extraction criteria:** "<ADD YOUR CRITERIA HERE>"
+
+**Context window:** ±${currentContextWindow} characters around each quote
+
+**Rules**  
+1. **Scan every file completely.**  
+2. **Select a passage only if it clearly satisfies the extraction criteria.** Ignore marginal or repetitive text.  
+3. **Quote verbatim.** Do **not** correct grammar, spelling, or punctuation.  
+4. **Preserve minimal context.** Include just enough leading and trailing text (as defined by the window above) so the quote is understandable on its own. 
+5. **No commentary or extra lines.** Output exactly the schema below—nothing more, nothing less.
+
+**Output format (one JSON object per quote, newline-delimited)**  
+\`\`\`json
+${outputSchema}
+\`\`\``;
+  }
+};
 
 const Index = () => {
   const [mode, setMode] = useState<'labels' | 'quotes'>('labels');
@@ -31,77 +101,7 @@ const Index = () => {
     localStorage.setItem('openai-api-key', newApiKey);
   };
 
-  // Generate default prompt function - no useCallback to avoid circular dependencies
-  const generateDefaultPrompt = (currentMode: string, currentLabels: string[], currentContextWindow: number, currentMetadata: string[]) => {
-    if (currentMode === 'labels') {
-      const labelsString = currentLabels.length > 0 ? `[${currentLabels.join(', ')}]` : '[]';
-      return `**Role:**  
-You are a meticulous data-labeling assistant.
-
-**Labels:** ${labelsString}
-
-**Goal:**  
-For **each row** in the uploaded spreadsheet, assign **exactly one** label from the provided list that best captures the row's meaning.
-
-**Labeling rules**  
-1. **Read the entire row.** Consider every cell, not just the first few.  
-2. **Pick only from the given labels.** Do **not** invent new ones.  
-3. **Tie-breakers:**  
-   • If more than one label seems to fit, choose the most specific.  
-   • If no label is perfect, choose the closest reasonable match.  
-4. **Be consistent.** Apply the same criteria across rows.  
-5. **Output format:** Return a single word or phrase—the chosen label—per row.
-
-Begin labeling now.`;
-    } else {
-      const schemaObject: Record<string, string> = {};
-      
-      currentMetadata.forEach(field => {
-        switch (field.toLowerCase()) {
-          case 'filename':
-          case 'file_name':
-            schemaObject.file_name = 'example.txt';
-            break;
-          case 'quote':
-            schemaObject.quote = 'verbatim text that matches …';
-            break;
-          case 'context before':
-          case 'context_before':
-            schemaObject.context_before = '… Part of preceding text ';
-            break;
-          case 'context after':
-          case 'context_after':
-            schemaObject.context_after = ' following text …';
-            break;
-          default:
-            schemaObject[field.toLowerCase().replace(/\s+/g, '_')] = `example ${field.toLowerCase()}`;
-        }
-      });
-
-      const outputSchema = JSON.stringify(schemaObject, null, 2);
-      
-      return `**Role**  
-You are a precise research assistant whose task is to extract verbatim quotations from text files.
-
-**Extraction criteria:** "<ADD YOUR CRITERIA HERE>"
-
-**Context window:** ±${currentContextWindow} characters around each quote
-
-**Rules**  
-1. **Scan every file completely.**  
-2. **Select a passage only if it clearly satisfies the extraction criteria.** Ignore marginal or repetitive text.  
-3. **Quote verbatim.** Do **not** correct grammar, spelling, or punctuation.  
-4. **Preserve minimal context.** Include just enough leading and trailing text (as defined by the window above) so the quote is understandable on its own. 
-5. **No commentary or extra lines.** Output exactly the schema below—nothing more, nothing less.
-
-**Output format (one JSON object per quote, newline-delimited)**  
-\`\`\`json
-${outputSchema}
-\`\`\``;
-    }
-  };
-
-  // Update prompt when dependencies change - simple useEffect without circular dependencies
+  // Update prompt when dependencies change - now using external function
   useEffect(() => {
     const defaultPrompt = generateDefaultPrompt(mode, labels, contextWindow, metadata);
     setPrompt(defaultPrompt);
