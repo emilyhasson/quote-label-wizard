@@ -30,8 +30,8 @@ const Index = () => {
     localStorage.setItem('openai-api-key', newApiKey);
   };
 
-  // Generate default prompt - stable function that doesn't depend on state
-  const getDefaultPrompt = (currentMode: string, currentLabels: string[], currentContextWindow: number, currentMetadata: string[]) => {
+  // Generate default prompt - moved outside useEffect to prevent recreation
+  const generateDefaultPrompt = useCallback((currentMode: string, currentLabels: string[], currentContextWindow: number, currentMetadata: string[]) => {
     if (currentMode === 'labels') {
       const labelsString = currentLabels.length > 0 ? `[${currentLabels.join(', ')}]` : '[]';
       return `**Role:**  
@@ -98,29 +98,13 @@ You are a precise research assistant whose task is to extract verbatim quotation
 ${outputSchema}
 \`\`\``;
     }
-  };
+  }, []); // Empty dependency array - function is stable
 
-  // Initialize prompt on mount and when key dependencies change
+  // Single useEffect to handle all prompt updates - prevents circular dependencies
   useEffect(() => {
-    const defaultPrompt = getDefaultPrompt(mode, labels, contextWindow, metadata);
+    const defaultPrompt = generateDefaultPrompt(mode, labels, contextWindow, metadata);
     setPrompt(defaultPrompt);
-  }, [mode]); // Only depend on mode to avoid infinite loops
-
-  // Update prompt when labels change (only for labels mode)
-  useEffect(() => {
-    if (mode === 'labels') {
-      const defaultPrompt = getDefaultPrompt(mode, labels, contextWindow, metadata);
-      setPrompt(defaultPrompt);
-    }
-  }, [labels]); // Separate effect for labels
-
-  // Update prompt when metadata or contextWindow changes (only for quotes mode)
-  useEffect(() => {
-    if (mode === 'quotes') {
-      const defaultPrompt = getDefaultPrompt(mode, labels, contextWindow, metadata);
-      setPrompt(defaultPrompt);
-    }
-  }, [contextWindow, metadata]); // Separate effect for quotes mode
+  }, [mode, labels, contextWindow, metadata, generateDefaultPrompt]);
 
   const handleRun = async () => {
     setIsProcessing(true);
@@ -153,7 +137,7 @@ ${outputSchema}
           fileData: fileData[0].data,
           fileName: fileData[0].name,
           labels,
-          prompt: prompt || getDefaultPrompt(mode, labels, contextWindow, metadata),
+          prompt: prompt || generateDefaultPrompt(mode, labels, contextWindow, metadata),
           model,
           apiKey
         };
@@ -196,7 +180,7 @@ ${outputSchema}
 
         let requestBody = {
           files: fileData,
-          prompt: prompt || getDefaultPrompt(mode, labels, contextWindow, metadata),
+          prompt: prompt || generateDefaultPrompt(mode, labels, contextWindow, metadata),
           model,
           apiKey,
           contextWindow
