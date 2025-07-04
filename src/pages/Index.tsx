@@ -124,7 +124,6 @@ ${outputSchema}
 
     try {
       setProgressMessage('Preparing files...');
-      setProgress(10);
 
       // Convert files to base64
       const filePromises = files.map(async (file) => {
@@ -138,24 +137,11 @@ ${outputSchema}
       });
 
       const fileData = await Promise.all(filePromises);
-      setProgress(25);
 
       const functionName = mode === 'labels' ? 'process-spreadsheet' : 'extract-quotes';
       
       if (mode === 'labels') {
-        // For spreadsheet processing, we'll simulate progress based on estimated time
         setProgressMessage('Processing spreadsheet with AI...');
-        
-        // Calculate estimated rows for better progress tracking
-        const estimatedRows = 100; // We'll update this based on actual file analysis
-        const progressInterval = setInterval(() => {
-          setProgress(prev => {
-            if (prev < 95) {
-              return prev + 1;
-            }
-            return prev;
-          });
-        }, 2000); // Update every 2 seconds
 
         let requestBody = {
           fileData: fileData[0].data,
@@ -169,8 +155,6 @@ ${outputSchema}
         const { data, error: functionError } = await supabase.functions.invoke(functionName, {
           body: requestBody
         });
-
-        clearInterval(progressInterval);
 
         if (functionError) {
           throw new Error(functionError.message);

@@ -1,3 +1,4 @@
+
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.50.2';
@@ -145,24 +146,17 @@ serve(async (req) => {
     
     const headerRow = rows[0];
     const dataRows = rows.slice(1); // Skip header
-    console.log(`Found ${dataRows.length} rows to process`);
+    const totalRows = dataRows.length;
+    console.log(`Found ${totalRows} rows to process`);
     console.log(`Header: ${headerRow.join(' | ')}`);
     console.log(`First data row sample: ${dataRows[0]?.slice(0, 3).join(' | ')}...`);
 
     // Process rows in batches to avoid rate limits
     const batchSize = 5;
     const results: ClassificationResult[] = [];
-    const totalBatches = Math.ceil(dataRows.length / batchSize);
     
     for (let i = 0; i < dataRows.length; i += batchSize) {
       const batch = dataRows.slice(i, i + batchSize);
-      const currentBatch = Math.floor(i / batchSize) + 1;
-      
-      // Calculate progress: 25% for file prep, 70% for processing, 5% for final output
-      const processingProgress = (currentBatch / totalBatches) * 70;
-      const totalProgress = 25 + processingProgress;
-      
-      console.log(`Processing batch ${currentBatch}/${totalBatches} - Progress: ${Math.round(totalProgress)}%`);
       
       const batchPromises = batch.map(async (row, batchIndex) => {
         const rowIndex = i + batchIndex + 2; // +2 for header and 1-based indexing
@@ -221,6 +215,12 @@ serve(async (req) => {
 
       const batchResults = await Promise.all(batchPromises);
       results.push(...batchResults);
+      
+      // Calculate progress based on rows processed
+      const rowsProcessed = results.length;
+      const progressPercentage = Math.round((rowsProcessed / totalRows) * 100);
+      
+      console.log(`Processed ${rowsProcessed}/${totalRows} rows - Progress: ${progressPercentage}%`);
       
       // Small delay to avoid rate limiting
       if (i + batchSize < dataRows.length) {
