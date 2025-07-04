@@ -30,36 +30,8 @@ const Index = () => {
     localStorage.setItem('openai-api-key', newApiKey);
   };
 
-  const generateOutputSchema = useCallback(() => {
-    const schemaObject: Record<string, string> = {};
-    
-    metadata.forEach(field => {
-      switch (field.toLowerCase()) {
-        case 'filename':
-        case 'file_name':
-          schemaObject.file_name = 'example.txt';
-          break;
-        case 'quote':
-          schemaObject.quote = 'verbatim text that matches …';
-          break;
-        case 'context before':
-        case 'context_before':
-          schemaObject.context_before = '… Part of preceding text ';
-          break;
-        case 'context after':
-        case 'context_after':
-          schemaObject.context_after = ' following text …';
-          break;
-        default:
-          schemaObject[field.toLowerCase().replace(/\s+/g, '_')] = `example ${field.toLowerCase()}`;
-      }
-    });
-
-    return JSON.stringify(schemaObject, null, 2);
-  }, [metadata]);
-
-  // Generate default prompt based on current state - no circular dependencies
-  const generateDefaultPrompt = useCallback((currentMode: string, currentLabels: string[], currentContextWindow: number, currentMetadata: string[]) => {
+  // Generate default prompt - stable function that doesn't depend on state
+  const getDefaultPrompt = (currentMode: string, currentLabels: string[], currentContextWindow: number, currentMetadata: string[]) => {
     if (currentMode === 'labels') {
       const labelsString = currentLabels.length > 0 ? `[${currentLabels.join(', ')}]` : '[]';
       return `**Role:**  
@@ -126,19 +98,29 @@ You are a precise research assistant whose task is to extract verbatim quotation
 ${outputSchema}
 \`\`\``;
     }
-  }, []); // No dependencies to avoid circular references
+  };
 
-  // Update prompt when mode changes
+  // Initialize prompt on mount and when key dependencies change
   useEffect(() => {
-    const defaultPrompt = generateDefaultPrompt(mode, labels, contextWindow, metadata);
+    const defaultPrompt = getDefaultPrompt(mode, labels, contextWindow, metadata);
     setPrompt(defaultPrompt);
-  }, [mode, generateDefaultPrompt, labels, contextWindow, metadata]);
+  }, [mode]); // Only depend on mode to avoid infinite loops
 
-  // Handle labels change without circular dependency
-  const handleLabelsChange = useCallback((newLabels: string[]) => {
-    setLabels(newLabels);
-    // The useEffect above will handle prompt update
-  }, []);
+  // Update prompt when labels change (only for labels mode)
+  useEffect(() => {
+    if (mode === 'labels') {
+      const defaultPrompt = getDefaultPrompt(mode, labels, contextWindow, metadata);
+      setPrompt(defaultPrompt);
+    }
+  }, [labels]); // Separate effect for labels
+
+  // Update prompt when metadata or contextWindow changes (only for quotes mode)
+  useEffect(() => {
+    if (mode === 'quotes') {
+      const defaultPrompt = getDefaultPrompt(mode, labels, contextWindow, metadata);
+      setPrompt(defaultPrompt);
+    }
+  }, [contextWindow, metadata]); // Separate effect for quotes mode
 
   const handleRun = async () => {
     setIsProcessing(true);
@@ -171,9 +153,9 @@ ${outputSchema}
           fileData: fileData[0].data,
           fileName: fileData[0].name,
           labels,
-          prompt: prompt || generateDefaultPrompt(mode, labels, contextWindow, metadata),
+          prompt: prompt || getDefaultPrompt(mode, labels, contextWindow, metadata),
           model,
-          apiKey // Pass the user's API key
+          apiKey
         };
 
         const { data, error: functionError } = await supabase.functions.invoke(functionName, {
@@ -214,7 +196,7 @@ ${outputSchema}
 
         let requestBody = {
           files: fileData,
-          prompt: prompt || generateDefaultPrompt(mode, labels, contextWindow, metadata),
+          prompt: prompt || getDefaultPrompt(mode, labels, contextWindow, metadata),
           model,
           apiKey,
           contextWindow
@@ -291,7 +273,7 @@ ${outputSchema}
           contextWindow={contextWindow}
           metadata={metadata}
           onFilesChange={setFiles}
-          onLabelsChange={handleLabelsChange}
+          onLabelsChange={setLabels}
           onPromptChange={setPrompt}
           onApiKeyChange={handleApiKeyChange}
           onModelChange={setModel}
