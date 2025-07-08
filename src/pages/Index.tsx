@@ -108,6 +108,7 @@ const Index = () => {
   }, [mode, labels, contextWindow, metadata]);
 
   const handleRun = async () => {
+    console.log('Starting handleRun...');
     setIsProcessing(true);
     setProgress(0);
     setError(null);
@@ -115,19 +116,40 @@ const Index = () => {
 
     try {
       setProgressMessage('Preparing files...');
-
-      // Convert files to base64
-      const filePromises = files.map(async (file) => {
-        const arrayBuffer = await file.arrayBuffer();
-        const uint8Array = new Uint8Array(arrayBuffer);
-        const base64 = btoa(String.fromCharCode(...uint8Array));
-        return {
-          data: base64,
-          name: file.name
-        };
-      });
-
-      const fileData = await Promise.all(filePromises);
+      console.log('Number of files:', files.length);
+      
+      // For large files, process them more efficiently to avoid stack overflow
+      const fileData = await Promise.all(
+        files.map(async (file, index) => {
+          console.log(`Processing file ${index + 1}/${files.length}: ${file.name} (${file.size} bytes)`);
+          
+          // For very large files, use a more memory-efficient approach
+          if (file.size > 10 * 1024 * 1024) { // 10MB threshold
+            console.log('Large file detected, using chunked processing');
+            const reader = new FileReader();
+            return new Promise<{data: string, name: string}>((resolve) => {
+              reader.onload = () => {
+                const result = reader.result as string;
+                const base64 = result.split(',')[1]; // Remove data:type;base64, prefix
+                resolve({
+                  data: base64,
+                  name: file.name
+                });
+              };
+              reader.readAsDataURL(file);
+            });
+          } else {
+            // Standard processing for smaller files
+            const arrayBuffer = await file.arrayBuffer();
+            const uint8Array = new Uint8Array(arrayBuffer);
+            const base64 = btoa(String.fromCharCode.apply(null, Array.from(uint8Array)));
+            return {
+              data: base64,
+              name: file.name
+            };
+          }
+        })
+      );
 
       const functionName = mode === 'labels' ? 'process-spreadsheet' : 'extract-quotes';
       
