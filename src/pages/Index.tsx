@@ -95,6 +95,7 @@ const Index = () => {
   const [progressMessage, setProgressMessage] = useState('');
   const [results, setResults] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
+  const [currentJobId, setCurrentJobId] = useState<string | null>(null);
 
   const handleApiKeyChange = (newApiKey: string) => {
     setApiKey(newApiKey);
@@ -107,12 +108,71 @@ const Index = () => {
     setPrompt(defaultPrompt);
   }, [mode, labels, contextWindow, metadata]);
 
+  // Job status polling
+  useEffect(() => {
+    let intervalId: NodeJS.Timeout;
+    
+    if (currentJobId && isProcessing) {
+      intervalId = setInterval(async () => {
+        try {
+          const response = await fetch(`https://dcwqdesukkexizcjiwpd.supabase.co/functions/v1/job-status?jobId=${currentJobId}`, {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+            }
+          });
+          
+          const data = await response.json();
+          
+          if (!response.ok) throw new Error(data.error || 'Failed to check job status');
+          
+          if (data.success && data.job) {
+            const job = data.job;
+            setProgress(job.progress);
+            setProgressMessage(`Processing... ${job.processedRows}/${job.totalRows} rows (${job.progress}%)`);
+            
+            if (job.status === 'completed') {
+              setProgress(100);
+              setProgressMessage('Processing complete!');
+              
+              // Create download URL from result data
+              const blob = new Blob([atob(job.resultData)], { type: 'text/csv' });
+              const downloadUrl = URL.createObjectURL(blob);
+              
+              setResults({
+                success: true,
+                downloadUrl,
+                filename: `labeled_${job.fileName}`,
+                summary: `Successfully labeled ${job.processedRows} rows`,
+                previewData: []
+              });
+              
+              setIsProcessing(false);
+              setCurrentJobId(null);
+            } else if (job.status === 'failed') {
+              setError(job.errorMessage || 'Processing failed');
+              setIsProcessing(false);
+              setCurrentJobId(null);
+            }
+          }
+        } catch (err) {
+          console.error('Error checking job status:', err);
+        }
+      }, 2000); // Poll every 2 seconds
+    }
+    
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [currentJobId, isProcessing]);
+
   const handleRun = async () => {
     console.log('Starting handleRun...');
     setIsProcessing(true);
     setProgress(0);
     setError(null);
     setResults(null);
+    setCurrentJobId(null);
 
     try {
       setProgressMessage('Preparing files...');
@@ -151,66 +211,92 @@ const Index = () => {
         })
       );
 
-      const functionName = mode === 'labels' ? 'process-spreadsheet' : 'extract-quotes';
-      
       if (mode === 'labels') {
-        setProgressMessage('Processing spreadsheet with AI...');
+        // Check file size to determine processing method
+        const fileSizeInBytes = files[0]?.size || 0;
+        const estimatedRows = Math.floor(fileSizeInBytes / 100); // Rough estimate
+        
+        if (estimatedRows > 1000) {
+          // Use queue system for large files
+          setProgressMessage('Queuing large file for background processing...');
+          
+          const { data, error: functionError } = await supabase.functions.invoke('queue-job', {
+            body: {
+              fileData: fileData[0].data,
+              fileName: fileData[0].name,
+              labels,
+              prompt: prompt || generateDefaultPrompt(mode, labels, contextWindow, metadata),
+              model,
+              apiKey
+            }
+          });
 
-        let requestBody = {
-          fileData: fileData[0].data,
-          fileName: fileData[0].name,
-          labels,
-          prompt: prompt || generateDefaultPrompt(mode, labels, contextWindow, metadata),
-          model,
-          apiKey
-        };
+          if (functionError) {
+            throw new Error(functionError.message);
+          }
 
-        const { data, error: functionError } = await supabase.functions.invoke(functionName, {
-          body: requestBody
-        });
+          if (!data.success) {
+            throw new Error(data.error || 'Failed to queue job');
+          }
 
-        if (functionError) {
-          throw new Error(functionError.message);
+          setCurrentJobId(data.jobId);
+          setProgressMessage(`Job queued successfully. Processing ${data.totalRows} rows in background...`);
+        } else {
+          // Use direct processing for smaller files
+          setProgressMessage('Processing spreadsheet with AI...');
+
+          const { data, error: functionError } = await supabase.functions.invoke('process-spreadsheet', {
+            body: {
+              fileData: fileData[0].data,
+              fileName: fileData[0].name,
+              labels,
+              prompt: prompt || generateDefaultPrompt(mode, labels, contextWindow, metadata),
+              model,
+              apiKey
+            }
+          });
+
+          if (functionError) {
+            throw new Error(functionError.message);
+          }
+
+          if (!data.success) {
+            throw new Error(data.error || 'Processing failed');
+          }
+
+          setProgress(100);
+          setProgressMessage('Complete!');
+
+          // Create download URL
+          const blob = new Blob([atob(data.downloadData)], { type: 'text/csv' });
+          const downloadUrl = URL.createObjectURL(blob);
+
+          const processedResults = {
+            success: true,
+            downloadUrl,
+            filename: data.filename,
+            summary: data.summary,
+            previewData: data.previewData
+          };
+
+          setTimeout(() => {
+            setResults(processedResults);
+            setIsProcessing(false);
+          }, 500);
         }
-
-        if (!data.success) {
-          throw new Error(data.error || 'Processing failed');
-        }
-
-        setProgress(100);
-        setProgressMessage('Complete!');
-
-        // Create download URL
-        const blob = new Blob([atob(data.downloadData)], { type: 'text/csv' });
-        const downloadUrl = URL.createObjectURL(blob);
-
-        const processedResults = {
-          success: true,
-          downloadUrl,
-          filename: data.filename,
-          summary: data.summary,
-          previewData: data.previewData
-        };
-
-        setTimeout(() => {
-          setResults(processedResults);
-          setIsProcessing(false);
-        }, 500);
       } else {
         // Quote extraction handling remains the same
         setProgressMessage('Extracting quotes with AI...');
         setProgress(50);
 
-        let requestBody = {
-          files: fileData,
-          prompt: prompt || generateDefaultPrompt(mode, labels, contextWindow, metadata),
-          model,
-          apiKey,
-          contextWindow
-        };
-
-        const { data, error: functionError } = await supabase.functions.invoke(functionName, {
-          body: requestBody
+        const { data, error: functionError } = await supabase.functions.invoke('extract-quotes', {
+          body: {
+            files: fileData,
+            prompt: prompt || generateDefaultPrompt(mode, labels, contextWindow, metadata),
+            model,
+            apiKey,
+            contextWindow
+          }
         });
 
         if (functionError) {
@@ -245,6 +331,7 @@ const Index = () => {
       console.error('Processing error:', err);
       setError(err instanceof Error ? err.message : 'An unexpected error occurred');
       setIsProcessing(false);
+      setCurrentJobId(null);
     }
   };
 

@@ -14,7 +14,63 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      processing_jobs: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          error_message: string | null
+          file_data: string
+          file_name: string
+          id: string
+          labels: string[]
+          model: string
+          processed_rows: number
+          prompt: string
+          result_data: string | null
+          started_at: string | null
+          status: string
+          total_rows: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          file_data: string
+          file_name: string
+          id?: string
+          labels: string[]
+          model?: string
+          processed_rows?: number
+          prompt: string
+          result_data?: string | null
+          started_at?: string | null
+          status?: string
+          total_rows: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          file_data?: string
+          file_name?: string
+          id?: string
+          labels?: string[]
+          model?: string
+          processed_rows?: number
+          prompt?: string
+          result_data?: string | null
+          started_at?: string | null
+          status?: string
+          total_rows?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
