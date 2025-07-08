@@ -151,18 +151,40 @@ serve(async (req) => {
     console.log(`Header: ${headerRow.join(' | ')}`);
     console.log(`First data row sample: ${dataRows[0]?.slice(0, 3).join(' | ')}...`);
 
-    // Process rows in batches to avoid rate limits
-    const batchSize = 5;
+    // Process rows in batches with timeout handling for large datasets
+    const batchSize = 10; // Increased batch size for better performance
     const results: ClassificationResult[] = [];
+    const maxExecutionTime = 4 * 60 * 1000; // 4 minutes (edge functions have ~5 min limit)
+    const startTime = Date.now();
     
-    for (let i = 0; i < dataRows.length; i += batchSize) {
-      const batch = dataRows.slice(i, i + batchSize);
+    // Process large datasets in chunks to avoid timeouts
+    const maxRowsPerExecution = 500; // Process max 500 rows per execution
+    const actualRowsToProcess = Math.min(dataRows.length, maxRowsPerExecution);
+    
+    if (dataRows.length > maxRowsPerExecution) {
+      console.log(`Large dataset detected (${dataRows.length} rows). Processing first ${maxRowsPerExecution} rows to avoid timeout.`);
+      console.log(`Consider splitting your data into smaller files or implementing a queue-based processing system for optimal results.`);
+    }
+    
+    for (let i = 0; i < actualRowsToProcess; i += batchSize) {
+      // Check if we're approaching timeout
+      const elapsedTime = Date.now() - startTime;
+      if (elapsedTime > maxExecutionTime) {
+        console.log(`Timeout approaching at ${elapsedTime}ms. Stopping processing at row ${i + 1}.`);
+        break;
+      }
+      
+      const batch = dataRows.slice(i, Math.min(i + batchSize, actualRowsToProcess));
       
       const batchPromises = batch.map(async (row, batchIndex) => {
         const rowIndex = i + batchIndex + 2; // +2 for header and 1-based indexing
-        const rowText = row.join(' '); // Join all columns with space for classification
+        const rowText = row.join(' ').substring(0, 4000); // Limit text length to avoid token limits
         
         try {
+          // Add timeout to individual API calls
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout per request
+          
           const response = await fetch('https://api.openai.com/v1/chat/completions', {
             method: 'POST',
             headers: {
@@ -184,10 +206,14 @@ serve(async (req) => {
               max_tokens: 50,
               temperature: 0.1,
             }),
+            signal: controller.signal
           });
+          
+          clearTimeout(timeoutId);
 
           if (!response.ok) {
-            throw new Error(`OpenAI API error: ${response.status} - ${await response.text()}`);
+            const errorText = await response.text();
+            throw new Error(`OpenAI API error: ${response.status} - ${errorText}`);
           }
 
           const data = await response.json();
@@ -200,31 +226,36 @@ serve(async (req) => {
 
           return {
             row: rowIndex,
-            originalRow: row, // Store the original row as array
+            originalRow: row,
             label: selectedLabel,
           };
         } catch (error) {
-          console.error(`Error processing row ${rowIndex}:`, error);
+          console.error(`Error processing row ${rowIndex}:`, error.message);
           return {
             row: rowIndex,
-            originalRow: row, // Store the original row as array
+            originalRow: row,
             label: labels[0], // Fallback label
           };
         }
       });
 
-      const batchResults = await Promise.all(batchPromises);
-      results.push(...batchResults);
-      
-      // Calculate progress based on rows processed
-      const rowsProcessed = results.length;
-      const progressPercentage = Math.round((rowsProcessed / totalRows) * 100);
-      
-      console.log(`Processed ${rowsProcessed}/${totalRows} rows - Progress: ${progressPercentage}%`);
-      
-      // Small delay to avoid rate limiting
-      if (i + batchSize < dataRows.length) {
-        await new Promise(resolve => setTimeout(resolve, 100));
+      try {
+        const batchResults = await Promise.all(batchPromises);
+        results.push(...batchResults);
+        
+        // Calculate progress based on rows processed
+        const rowsProcessed = results.length;
+        const progressPercentage = Math.round((rowsProcessed / actualRowsToProcess) * 100);
+        
+        console.log(`Processed ${rowsProcessed}/${actualRowsToProcess} rows - Progress: ${progressPercentage}% (Elapsed: ${Date.now() - startTime}ms)`);
+        
+        // Small delay to avoid rate limiting, but reduce for efficiency
+        if (i + batchSize < actualRowsToProcess) {
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+      } catch (batchError) {
+        console.error(`Error processing batch starting at row ${i + 2}:`, batchError);
+        // Continue with next batch instead of failing completely
       }
     }
 
