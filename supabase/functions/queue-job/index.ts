@@ -103,12 +103,12 @@ serve(async (req) => {
 
     const totalRows = rows.length - 1; // Exclude header
     
-    // Get user ID from auth header
+    // Get user ID from auth header - for now use null since auth isn't implemented
     const authHeader = req.headers.get('authorization');
     const token = authHeader?.replace('Bearer ', '');
     
-    // For now, use a placeholder user ID - in production, validate the JWT
-    const userId = 'anonymous'; // You should implement proper auth validation
+    // For now, use null for user ID since authentication isn't implemented yet
+    const userId = null;
     
     // Create job in database
     const { data: job, error } = await supabase
