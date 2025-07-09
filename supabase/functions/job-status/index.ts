@@ -25,12 +25,29 @@ serve(async (req) => {
       throw new Error('jobId parameter is required');
     }
 
-    // Get job status
-    const { data: job, error } = await supabase
-      .from('processing_jobs')
-      .select('*')
-      .eq('id', jobId)
-      .single();
+    // Get job status with timeout handling
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+    
+    let job, error;
+    try {
+      const result = await supabase
+        .from('processing_jobs')
+        .select('*')
+        .eq('id', jobId)
+        .abortSignal(controller.signal)
+        .single();
+      
+      job = result.data;
+      error = result.error;
+      clearTimeout(timeoutId);
+    } catch (timeoutError) {
+      clearTimeout(timeoutId);
+      if (timeoutError.name === 'AbortError') {
+        throw new Error('Database query timeout - job status check failed');
+      }
+      throw timeoutError;
+    }
 
     if (error || !job) {
       throw new Error(`Job not found: ${error?.message}`);
